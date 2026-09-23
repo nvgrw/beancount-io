@@ -21,4 +21,4 @@ COPY backend-cluster/ledger-python/app ./app
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${UVICORN_WORKERS:-2}"]

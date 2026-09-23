@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
@@ -9,6 +11,7 @@ from .collaborators import router as collaborators_router
 from .entries import router as entries_router
 from .errors import ServiceError, service_error_handler, success
 from .files import router as files_router
+from .gitea import gitea_http_lifespan
 from .journal import router as journal_router
 from .keys import router as keys_router
 from .ledgers import router as ledgers_router
@@ -21,7 +24,13 @@ from .users import router as users_router
 from .webhooks import router as webhooks_router
 
 
-app = FastAPI(title="Beancount Python Ledger", version="0.1.0")
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    async with gitea_http_lifespan():
+        yield
+
+
+app = FastAPI(title="Beancount Python Ledger", version="0.1.0", lifespan=lifespan)
 app.add_exception_handler(ServiceError, service_error_handler)
 app.include_router(admin_router)
 app.include_router(users_router)

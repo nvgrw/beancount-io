@@ -222,10 +222,15 @@ services:
         condition: service_healthy
     environment:
       PORT: 8000
+      UVICORN_WORKERS: ${LEDGER_WORKERS:-2}
       GITEA_HOST_NAME: gitea
       GITEA_HTTP_PORT: 3000
       GITEA_REPOSITORIES_ROOT: /gitea-data/git/repositories
       PYTHON_LEDGER_CACHE_ROOT: /var/cache/beancount-python
+      PARSED_LEDGER_CACHE_ENTRIES: ${PARSED_LEDGER_CACHE_ENTRIES:-8}
+      PARSED_LEDGER_QUEUE_DEPTH: ${PARSED_LEDGER_QUEUE_DEPTH:-32}
+      MATERIALIZED_SNAPSHOTS_PER_REPO: ${MATERIALIZED_SNAPSHOTS_PER_REPO:-16}
+      DEPENDENCY_CACHE_ENTRIES: ${DEPENDENCY_CACHE_ENTRIES:-32}
       WEBHOOK_TOKEN: ${LEDGER_WEBHOOK_TOKEN:-}
       # Managed price includes (ADR 015): origins the ledger may fetch price
       # feeds from. Only beancount.io unless overridden; "" disables the feature.

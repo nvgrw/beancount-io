@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import quote
 
@@ -8,6 +10,38 @@ import httpx
 from .auth import RequestAuth
 from .config import settings
 from .errors import ServiceError
+
+
+_http_client: httpx.AsyncClient | None = None
+
+
+@asynccontextmanager
+async def use_http_client(client: httpx.AsyncClient) -> AsyncIterator[None]:
+    global _http_client
+    if _http_client is not None:
+        raise RuntimeError("Gitea HTTP client is already configured")
+    _http_client = client
+    try:
+        yield
+    finally:
+        _http_client = None
+
+
+@asynccontextmanager
+async def gitea_http_lifespan() -> AsyncIterator[None]:
+    async with httpx.AsyncClient(
+        base_url=f"{settings.gitea_url}/api/v1",
+        headers={"Accept": "application/json"},
+        timeout=30,
+    ) as client:
+        async with use_http_client(client):
+            yield
+
+
+def _shared_http_client() -> httpx.AsyncClient:
+    if _http_client is None:
+        raise RuntimeError("Gitea HTTP client is not configured")
+    return _http_client
 
 
 class GiteaClient:
@@ -24,12 +58,7 @@ class GiteaClient:
         json: Any | None = None,
         params: dict[str, Any] | None = None,
     ) -> Any:
-        async with httpx.AsyncClient(
-            base_url=f"{settings.gitea_url}/api/v1",
-            headers=self._headers,
-            timeout=30,
-        ) as client:
-            response = await client.request(method, path, json=json, params=params)
+        response = await self.raw_request(method, path, json=json, params=params)
         if response.is_error:
             try:
                 body = response.json()
@@ -43,6 +72,22 @@ class GiteaClient:
         if response.status_code == 204 or not response.content:
             return None
         return response.json()
+
+    async def raw_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> httpx.Response:
+        return await _shared_http_client().request(
+            method,
+            path,
+            headers=self._headers,
+            json=json,
+            params=params,
+        )
 
     async def repository(self, owner: str, repo: str) -> dict[str, Any]:
         value = await self.request("GET", repo_path(owner, repo))

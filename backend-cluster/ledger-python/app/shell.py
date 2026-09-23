@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
+from fava.modules.query_shell import QueryShellModule
 
 from .auth import RequestAuth, request_auth
 from .errors import success
@@ -27,7 +28,9 @@ async def query_shell(
     value: Annotated[LoadedLedger, Depends(loaded)],
     query: str,
 ) -> dict[str, Any]:
-    result = value.fava.shell.execute_query_serialised(value.entries, query)
+    result = QueryShellModule(value.fava).execute_query_serialised(
+        value.entries, query
+    )
     return success({"result": json_value(result, value.snapshot.root)})
 
 
@@ -36,5 +39,5 @@ async def query_shell_text(
     value: Annotated[LoadedLedger, Depends(loaded)],
     query: str,
 ) -> dict[str, Any]:
-    text = value.fava.shell.execute_query_as_text(value.entries, query)
+    text = QueryShellModule(value.fava).execute_query_as_text(value.entries, query)
     return success({"text": text})

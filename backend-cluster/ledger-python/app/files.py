@@ -3,12 +3,10 @@ from __future__ import annotations
 import re
 from typing import Annotated, Any
 
-import httpx
 from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import Response
 
 from .auth import RequestAuth, request_auth
-from .config import settings
 from .errors import ServiceError, success
 from .gitea import GiteaClient, repo_path, safe_repo_file_path
 from .serializers import file_content
@@ -174,13 +172,14 @@ async def archive(
 ) -> Response:
     if not ARCHIVE_NAME.fullmatch(archive) or ".." in archive:
         raise ServiceError(400, "Invalid archive name")
-    headers = {} if auth.anonymous or auth.header is None else {"Authorization": auth.header}
-    url = (
-        f"{settings.gitea_url}/api/v1"
-        f"{repo_path(owner, repo, f'/archive/{safe_repo_file_path(archive, 'archive')}')}"
+    upstream = await GiteaClient(auth).raw_request(
+        "GET",
+        repo_path(
+            owner,
+            repo,
+            f"/archive/{safe_repo_file_path(archive, 'archive')}",
+        ),
     )
-    async with httpx.AsyncClient(timeout=30) as client:
-        upstream = await client.get(url, headers=headers)
     if upstream.status_code == 404:
         raise ServiceError(404, "Archive not found")
     if upstream.is_error:

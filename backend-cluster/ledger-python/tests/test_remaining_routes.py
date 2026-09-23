@@ -179,24 +179,17 @@ def test_legacy_journal_filters_and_details() -> None:
 
 
 def test_archive_forwards_bytes_and_headers(monkeypatch) -> None:
-    class FakeClient:
-        async def __aenter__(self):
-            return self
+    async def raw_request(self, method, path, *, json=None, params=None):
+        return httpx.Response(
+            200,
+            content=b"archive-bytes",
+            headers={
+                "content-type": "application/zip",
+                "content-disposition": 'attachment; filename="book.zip"',
+            },
+        )
 
-        async def __aexit__(self, *args):
-            return None
-
-        async def get(self, url, headers):
-            return httpx.Response(
-                200,
-                content=b"archive-bytes",
-                headers={
-                    "content-type": "application/zip",
-                    "content-disposition": 'attachment; filename="book.zip"',
-                },
-            )
-
-    monkeypatch.setattr("app.files.httpx.AsyncClient", lambda **kwargs: FakeClient())
+    monkeypatch.setattr(GiteaClient, "raw_request", raw_request)
     response = TestClient(app).get(
         "/ledgers/alice/book/archive/book.zip", headers=AUTH
     )

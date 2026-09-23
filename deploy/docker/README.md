@@ -166,6 +166,15 @@ Gitea's data directory through a read-only mount; materialized snapshots and
 installed plugin dependencies are cached under
 `./data/ledger-python-cache`.
 
+The service runs two Uvicorn worker processes by default. Each process owns an
+eight-entry parsed-ledger LRU and coalesces concurrent misses for the same
+commit; unique parse misses queue to a depth of 32. Materialized snapshots keep
+the 16 most recently used commits per repository, and dependency environments
+keep 32 requirement digests. Override `LEDGER_WORKERS`,
+`PARSED_LEDGER_CACHE_ENTRIES`, `PARSED_LEDGER_QUEUE_DEPTH`,
+`MATERIALIZED_SNAPSHOTS_PER_REPO`, or `DEPENDENCY_CACHE_ENTRIES` in `.env` after
+measuring memory and workload behavior on the deployment host.
+
 Ledger repositories are trusted code in this self-hosted deployment. A
 repository may add `.beancountio-requirements.txt` at its root to install extra
 Python packages into a cache keyed by that file's SHA-256 digest. Package

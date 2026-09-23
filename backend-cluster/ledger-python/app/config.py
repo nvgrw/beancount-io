@@ -11,6 +11,11 @@ class Settings:
     gitea_url: str
     repositories_root: Path
     cache_root: Path
+    parsed_ledger_cache_entries: int
+    parsed_ledger_queue_depth: int
+    materialized_snapshots_per_repo: int
+    dependency_cache_entries: int
+    cache_eviction_grace_seconds: int
     webhook_token: str | None
 
 
@@ -28,6 +33,21 @@ def load_settings() -> Settings:
         ),
         cache_root=Path(
             os.environ.get("PYTHON_LEDGER_CACHE_ROOT", "/var/cache/beancount-python")
+        ),
+        parsed_ledger_cache_entries=max(
+            1, int(os.environ.get("PARSED_LEDGER_CACHE_ENTRIES", "8"))
+        ),
+        parsed_ledger_queue_depth=max(
+            1, int(os.environ.get("PARSED_LEDGER_QUEUE_DEPTH", "32"))
+        ),
+        materialized_snapshots_per_repo=max(
+            8, int(os.environ.get("MATERIALIZED_SNAPSHOTS_PER_REPO", "16"))
+        ),
+        dependency_cache_entries=max(
+            1, int(os.environ.get("DEPENDENCY_CACHE_ENTRIES", "32"))
+        ),
+        cache_eviction_grace_seconds=max(
+            0, int(os.environ.get("CACHE_EVICTION_GRACE_SECONDS", "300"))
         ),
         webhook_token=os.environ.get("WEBHOOK_TOKEN") or None,
     )

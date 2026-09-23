@@ -4,8 +4,6 @@ import asyncio
 import base64
 import binascii
 import dataclasses
-import shutil
-import tempfile
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -33,6 +31,7 @@ from .serializers import (
     relative_filename,
     source_files,
 )
+from .workspace import cloned_workspace, write_text_copy_on_write
 
 
 router = APIRouter(prefix="/reports/{owner}/{repo}")
@@ -62,9 +61,9 @@ async def check_projected_errors(
     if not isinstance(overlays, list) or len(overlays) > 50:
         raise ServiceError(400, "at most 50 files may be projected at once")
 
-    with tempfile.TemporaryDirectory(prefix="beancount-projection-") as directory:
-        root = Path(directory) / "repository"
-        shutil.copytree(value.snapshot.root, root)
+    with cloned_workspace(
+        value.snapshot.root, "beancount-projection-"
+    ) as root:
         total_bytes = 0
         for index, overlay in enumerate(overlays):
             if not isinstance(overlay, dict):
@@ -89,8 +88,7 @@ async def check_projected_errors(
             total_bytes += len(decoded.encode("utf-8"))
             if total_bytes > 5_000_000:
                 raise ServiceError(400, "projected contents exceed 5000000 bytes")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(decoded, encoding="utf-8")
+            write_text_copy_on_write(target, decoded)
 
         projected_snapshot = dataclasses.replace(value.snapshot, root=root)
         projected = await asyncio.to_thread(load_snapshot, projected_snapshot)

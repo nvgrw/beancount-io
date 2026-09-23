@@ -7,8 +7,6 @@ import binascii
 import dataclasses
 import hashlib
 import re
-import shutil
-import tempfile
 from collections import defaultdict
 from decimal import Decimal
 from pathlib import Path
@@ -41,6 +39,7 @@ from .gitea import GiteaClient, repo_path, safe_repo_file_path
 from .ledger import LoadedLedger, load_snapshot
 from .main_support import load_ledger
 from .serializers import json_value, relative_filename
+from .workspace import cloned_workspace, write_text_copy_on_write
 
 
 router = APIRouter(prefix="/journal/{owner}/{repo}")
@@ -199,11 +198,11 @@ def _projected_entry_id(
     content: str,
     lineno: int,
 ) -> str:
-    with tempfile.TemporaryDirectory(prefix="beancount-source-edit-") as directory:
-        root = Path(directory) / "repository"
-        shutil.copytree(value.snapshot.root, root)
+    with cloned_workspace(
+        value.snapshot.root, "beancount-source-edit-"
+    ) as root:
         target = root / path
-        target.write_text(content, encoding="utf-8")
+        write_text_copy_on_write(target, content)
         projected = load_snapshot(dataclasses.replace(value.snapshot, root=root))
         ids = _entry_ids(projected.entries)
         for entry in projected.entries:
