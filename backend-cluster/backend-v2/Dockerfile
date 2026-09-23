@@ -1,28 +1,33 @@
- FROM node:22-alpine
+FROM node:22-alpine AS builder
 
- # Set working directory
- WORKDIR /app
+WORKDIR /app
 
- # Install system dependencies including Yarn
- RUN apk add --no-cache git yarn
+RUN apk add --no-cache git yarn
 
- # Copy package files
- COPY package.json yarn.lock* ./
+COPY package.json yarn.lock* ./
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+	yarn install --non-interactive
 
- # Install dependencies (generate lockfile if needed)
- # Note: Peer dependency warnings for @as-integrations/koa are expected and non-blocking
- RUN yarn install
+COPY . .
+RUN yarn build
 
- # Copy source code
- COPY . .
+# Keep only runtime dependencies in the layer copied to the final image.
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+	yarn install --production --ignore-scripts --non-interactive --no-lockfile
 
- # Expose port
- EXPOSE 4104
+FROM node:22-alpine
 
- # Set environment variables
- ENV NODE_ENV=production
- ENV PORT=4104
+WORKDIR /app
 
- # Start the application
- CMD ["yarn", "start"]
+ENV NODE_ENV=production
+ENV PORT=4104
 
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/scripts/migrate-deploy.js ./scripts/migrate-deploy.js
+COPY --from=builder /app/src/drizzle/migrations ./src/drizzle/migrations
+
+EXPOSE 4104
+
+CMD ["node", "dist/server.js"]

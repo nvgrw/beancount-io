@@ -1,25 +1,21 @@
-{
-	email {$ACME_EMAIL}
-}
-
-{$APP_DOMAIN} {
+http://{$APP_DOMAIN} {
 	encode zstd gzip
+	# Git clients use these endpoints; every other application path remains on
+	# the dashboard or API handlers below.
+	@gitSmart path_regexp gitSmart ^/[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*(?:\.git)?/(?:info/refs|git-upload-pack|git-receive-pack)$
+	handle @gitSmart {
+		rewrite * /git{uri}
+		reverse_proxy backend-v2:4104
+	}
 	# Universal / App Links vouchers must be reachable on the dashboard host —
-	# Apple and Google fetch them from the link's origin, not the API domain.
+	# Apple and Google fetch them from the link's origin.
 	handle /.well-known/* {
+		reverse_proxy backend-v2:4104
+	}
+	handle /api-gateway/* {
 		reverse_proxy backend-v2:4104
 	}
 	handle {
 		reverse_proxy dashboard:3000
 	}
-}
-
-{$API_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy backend-v2:4104
-}
-
-{$GIT_DOMAIN} {
-	encode zstd gzip
-	reverse_proxy gitea:3000
 }
