@@ -30,7 +30,7 @@ export function useUserLimits() {
 
   // Helper booleans
   const isAtLedgerLimit = limits
-    ? limits.ledgersUsed >= limits.ledgersMax
+    ? limits.ledgersMax >= 0 && limits.ledgersUsed >= limits.ledgersMax
     : false;
   const isPremium = tier === "PREMIUM";
   const isFree = tier === "FREE";

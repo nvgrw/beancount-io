@@ -41,6 +41,15 @@ describe("LimitIndicator", () => {
     // Default: running in web browser (not React Native)
     mockUseReactNativeContext.mockReturnValue({ isReactNative: false });
   });
+
+  it("should render nothing for an unlimited quota", () => {
+    const { container } = render(
+      <LimitIndicator used={0} max={-1} limitType="ledgers" />,
+    );
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
   describe("Badge variant", () => {
     it("should render as badge variant when specified", () => {
       render(

@@ -3,6 +3,9 @@ import { render, screen } from "@testing-library/react";
 
 // Mock useQuery
 const mockUseQuery = vi.fn();
+const mockConfig = vi.hoisted(() => ({ selfHostedUnlimited: false }));
+
+vi.mock("@/config/config", () => ({ config: mockConfig }));
 
 // Mock Apollo Client
 vi.mock("@apollo/client/react", () => ({
@@ -114,6 +117,7 @@ describe("GeneralSettingsPage", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConfig.selfHostedUnlimited = false;
     // Default: running in web browser (not React Native)
     mockUseReactNativeContext.mockReturnValue({ isReactNative: false });
   });
@@ -265,6 +269,23 @@ describe("GeneralSettingsPage", () => {
       expect(screen.getByTestId("user-profile-section")).toBeInTheDocument();
       expect(screen.getByTestId("appearance-section")).toBeInTheDocument();
       expect(screen.getByTestId("session-section")).toBeInTheDocument();
+    });
+
+    it("hides subscriptions for self-hosted unlimited deployments", async () => {
+      mockConfig.selfHostedUnlimited = true;
+      mockUseQuery.mockReturnValue({
+        data: mockUserData,
+        loading: false,
+        error: null,
+      });
+
+      const { default: GeneralSettingsPage } = await import("../index");
+      render(<GeneralSettingsPage />);
+
+      expect(
+        screen.queryByTestId("subscription-section"),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId("user-profile-section")).toBeInTheDocument();
     });
 
     it("should render sections in correct order", async () => {
