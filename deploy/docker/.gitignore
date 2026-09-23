@@ -4,3 +4,6 @@ docker-compose.override.yml
 
 # Scratch files, including redirected SSH host keys.
 tmp/
+
+# Persistent service data lives beside Compose but never in Git.
+data/
