@@ -8,6 +8,7 @@ import {
   getTierLimits,
 } from "../service/stripe";
 import type { IStripeService } from "../service/stripe-service";
+import { config } from "@/config/config";
 
 /**
  * Dependencies for the tier operations. Injected explicitly (not via `IService`)
@@ -35,6 +36,10 @@ export async function getUserTier({
   postgresDb,
   userId,
 }: GetUserTierParams): Promise<SubscriptionTier> {
+  if (config.selfHostedUnlimited) {
+    return SubscriptionTier.ENTERPRISE;
+  }
+
   const stripeService = stripe;
   try {
     // Check if user has an active subscription using the existing isPaid infrastructure

@@ -192,6 +192,8 @@ export function getDevelopmentPremiumUserIds(
 
 export interface AppConfig {
   api: ApiConfig;
+  /** Self-hosted deployments may disable billing and all tier limits. */
+  selfHostedUnlimited: boolean;
   sshProxy: SshProxyConfig;
   env: Environment;
   project: string;
@@ -346,6 +348,7 @@ export const config: AppConfig = {
       environment,
     ),
   },
+  selfHostedUnlimited: process.env.SELF_HOSTED_UNLIMITED === "true",
   env: environment,
   project: "beancount-io",
   jwt: {
