@@ -1,0 +1,8 @@
+beancount==3.2.0
+beanquery==0.2.0
+fastapi==0.115.12
+fava==1.30.2
+httpx==0.28.1
+python-dateutil==2.9.0.post0
+uvicorn==0.34.3
+python-multipart==0.0.20
