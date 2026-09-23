@@ -3,6 +3,7 @@ import {
   GetAllTierQuotasDocument,
   type GetAllTierQuotasQuery,
 } from "@/graphql/definitions";
+import { config } from "@/config/config";
 
 export type TierQuota = {
   tier: string;
@@ -16,14 +17,24 @@ export type TierQuota = {
 export function useAllTierQuotas() {
   const { data, loading, error } = useQuery<GetAllTierQuotasQuery>(
     GetAllTierQuotasDocument,
-    { fetchPolicy: "cache-first" },
+    {
+      fetchPolicy: "cache-first",
+      skip: config.selfHostedUnlimited,
+    },
   );
 
-  const quotas = data?.allTierQuotas ?? null;
+  const quotas = config.selfHostedUnlimited
+    ? null
+    : (data?.allTierQuotas ?? null);
 
   function getQuotaForTier(userTier: string): TierQuota | null {
     return quotas?.find((q) => q.tier === userTier) ?? null;
   }
 
-  return { quotas, getQuotaForTier, isLoading: loading, error };
+  return {
+    quotas,
+    getQuotaForTier,
+    isLoading: config.selfHostedUnlimited ? false : loading,
+    error: config.selfHostedUnlimited ? undefined : error,
+  };
 }

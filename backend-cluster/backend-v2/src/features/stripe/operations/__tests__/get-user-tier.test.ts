@@ -7,6 +7,7 @@ import {
 import { logger } from "@/shared/logger";
 import type { IModels } from "@/foundation/models";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+import { config } from "@/config/config";
 
 // Mock logger
 jest.mock("@/shared/logger", () => ({
@@ -31,6 +32,7 @@ describe("get-user-tier operation", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    config.selfHostedUnlimited = false;
 
     mockPaidCustomerModel = {
       findByUserIdWithActivePeriod: jest.fn(),
@@ -49,6 +51,24 @@ describe("get-user-tier operation", () => {
   });
 
   describe("getUserTier", () => {
+    it("returns unlimited without reading billing state in self-hosted mode", async () => {
+      config.selfHostedUnlimited = true;
+
+      const tier = await getUserTier({
+        stripe: mockStripeService as any,
+        models: mockModels,
+        postgresDb: mockPostgresDb,
+        userId: "user-123",
+      });
+
+      expect(tier).toBe(SubscriptionTier.ENTERPRISE);
+      expect(
+        mockPaidCustomerModel.findByUserIdWithActivePeriod,
+      ).not.toHaveBeenCalled();
+      expect(mockPaidCustomerModel.findByUserId).not.toHaveBeenCalled();
+      expect(mockStripeService.listSubscriptions).not.toHaveBeenCalled();
+    });
+
     it("should return PREMIUM when user has active paidCustomer subscription", async () => {
       const futureDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
       mockPaidCustomerModel.findByUserIdWithActivePeriod.mockResolvedValue({

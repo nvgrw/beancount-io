@@ -131,7 +131,11 @@ export class LedgerCollaboratorsWorkflow implements ILedgerCollaboratorsWorkflow
         (c: UserPublic) => c.login !== ledgerOwner,
       ).length;
 
-      if (isNew && count >= tierLimits.maxCollaboratorsPerLedger) {
+      if (
+        isNew &&
+        tierLimits.maxCollaboratorsPerLedger >= 0 &&
+        count >= tierLimits.maxCollaboratorsPerLedger
+      ) {
         const premiumLimit =
           TIER_LIMITS[SubscriptionTier.PREMIUM].maxCollaboratorsPerLedger;
         throw new InternalServerError(

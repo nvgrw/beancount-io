@@ -3,6 +3,12 @@ import {
   AUTHORIZATION_ACTIONS,
   ledgerResource,
 } from "@/server/api/authorization";
+import { getUserTier } from "@/features/stripe/operations/get-user-tier";
+import { SubscriptionTier } from "@/features/stripe/service/stripe";
+
+jest.mock("@/features/stripe/operations/get-user-tier");
+
+const mockGetUserTier = getUserTier as jest.Mock;
 
 const identity = {
   userId: "usr_admin",
@@ -24,6 +30,7 @@ describe("LedgerCollaboratorsWorkflow authorization", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetUserTier.mockResolvedValue(SubscriptionTier.FREE);
     authorizeOrThrow.mockResolvedValue({ allowed: true });
     listLedgerCollaborators.mockResolvedValue({
       data: { success: true, data: [] },
@@ -161,6 +168,28 @@ describe("LedgerCollaboratorsWorkflow authorization", () => {
       category: "BAD_USER_INPUT",
       message: "No such user: ghost",
     });
+  });
+
+  it("allows new collaborators when the tier is unlimited", async () => {
+    mockGetUserTier.mockResolvedValue(SubscriptionTier.ENTERPRISE);
+    listLedgerCollaborators.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: [
+          { login: "owner" },
+          { login: "existing-collaborator" },
+        ],
+      },
+    });
+
+    await expect(
+      workflow.addOrUpdateCollaborator({
+        identity,
+        ledgerId,
+        collaborator: "new-collaborator",
+        permission: "write",
+      }),
+    ).resolves.toMatchObject({ success: true });
   });
 
   it("rethrows other collaborator-update failures unchanged", async () => {
