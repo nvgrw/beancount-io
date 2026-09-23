@@ -42,6 +42,7 @@ import {
 } from "../git-proxy-handler";
 import { clearRateLimitStores } from "@/shared/rate-limiter";
 import { BadUserInputError } from "@/shared/errors";
+import { cloudflareAccessUserId } from "@/features/auth/utils/cloudflare-access";
 
 describe("setGitProxyHandler", () => {
   let router: Router;
@@ -88,6 +89,7 @@ describe("setGitProxyHandler", () => {
         db: {} as any,
         models: {
           user: {
+            getById: jest.fn(),
             getByMail: jest.fn(),
             verifyPassword: jest.fn(),
             // The shadow directive-limit check looks the repo owner up on every
@@ -228,6 +230,24 @@ describe("setGitProxyHandler", () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
+    it("should not fall back to Basic auth in Cloudflare Access mode", async () => {
+      mockConfig.cloudflareAccess = {
+        issuer: "https://team.cloudflareaccess.com",
+        audience: "access-audience",
+      };
+      setGitProxyHandler(router, mockServices, mockConfig);
+      const basicAuth = Buffer.from("test@example.com:password123").toString(
+        "base64",
+      );
+      (ctx.get as jest.Mock).mockReturnValue(`Basic ${basicAuth}`);
+
+      await registeredRoute!.handler(ctx);
+
+      expect(ctx.status).toBe(401);
+      expect(ctx.body).toBe("Cloudflare Access authentication required");
+      expect(mockServices.database.models.user.getByMail).not.toHaveBeenCalled();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
     it("should return 401 when user not found", async () => {
       setGitProxyHandler(router, mockServices, mockConfig);
 
@@ -320,6 +340,55 @@ describe("setGitProxyHandler", () => {
           }),
         }),
       );
+    });
+
+    it("should translate a verified Cloudflare Access identity", async () => {
+      mockConfig.cloudflareAccess = {
+        issuer: "https://team.cloudflareaccess.com",
+        audience: "access-audience",
+      };
+      setGitProxyHandler(router, mockServices, mockConfig);
+      const claims = {
+        issuer: "https://team.cloudflareaccess.com",
+        subject: "person-1",
+        email: "test@example.com",
+      };
+      ctx.state = { cloudflareAccessClaims: claims };
+      ctx.headers = {
+        "cf-access-jwt-assertion": "signed-assertion",
+      };
+      (ctx.get as jest.Mock).mockReturnValue(undefined);
+      (
+        mockServices.database.models.user.getById as jest.Mock
+      ).mockResolvedValue({ ...mockUser, isBlocked: false });
+      mockFetch.mockResolvedValue({
+        status: 200,
+        headers: { forEach: jest.fn() },
+        body: "mock-response-body",
+      });
+
+      await registeredRoute!.handler(ctx);
+
+      expect(mockServices.database.models.user.getById).toHaveBeenCalledWith(
+        mockServices.database.db,
+        cloudflareAccessUserId(claims.issuer, claims.subject),
+      );
+      const expectedLedgerAuth = Buffer.from(
+        "gitea-user:gitea-pass",
+      ).toString("base64");
+      expect(mockFetch).toHaveBeenCalledWith(
+        "http://gitea:3000/owner/repo.git/info/refs",
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: `Basic ${expectedLedgerAuth}`,
+          }),
+        }),
+      );
+      expect(
+        (mockFetch.mock.calls[0][1].headers as Record<string, string>)[
+          "cf-access-jwt-assertion"
+        ],
+      ).toBeUndefined();
     });
 
     it("should handle passwords containing colons", async () => {

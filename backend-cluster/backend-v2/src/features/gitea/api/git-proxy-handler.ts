@@ -37,6 +37,10 @@ import {
 import { API_KEY_PLAINTEXT_PREFIX } from "@/features/apikeys/service/api-key-service";
 import { gitHttpPasswordAuthTotal } from "@/metrics/metrics-definitions";
 import { OTHER_LEDGER_HINT } from "@/server/api/authorization";
+import {
+  cloudflareAccessUserId,
+  type CloudflareAccessClaims,
+} from "@/features/auth/utils/cloudflare-access";
 
 const proxyLogger = logger.child({ module: "git-proxy" });
 
@@ -828,20 +832,27 @@ export function setGitProxyHandler(
       return;
     }
 
+    const accessClaims = (
+      ctx.state as
+        | { cloudflareAccessClaims?: CloudflareAccessClaims }
+        | undefined
+    )?.cloudflareAccessClaims;
     const authHeader = ctx.get("Authorization");
     const credentials = parseBasicAuth(authHeader);
 
-    // Git requires authentication - send WWW-Authenticate header if missing
-    if (!credentials) {
+    if (config.cloudflareAccess && !accessClaims) {
+      ctx.status = 401;
+      ctx.body = "Cloudflare Access authentication required";
+      return;
+    }
+
+    // Non-Access deployments retain the existing Basic authentication flow.
+    if (!credentials && !accessClaims) {
       ctx.status = 401;
       ctx.set("WWW-Authenticate", 'Basic realm="Git"');
       ctx.body = "Authentication required";
       return;
     }
-
-    const [username, password] = credentials;
-    const kind = gitCredentialKind(username, password);
-    const warnPassword = kind !== "token" && passwordAuth === "warn";
 
     try {
       // Forward headers, excluding host and authorization
@@ -852,44 +863,84 @@ export function setGitProxyHandler(
           lowerKey !== "host" &&
           lowerKey !== "authorization" &&
           lowerKey !== "connection" &&
+          !lowerKey.startsWith("cf-access-") &&
           typeof value === "string"
         ) {
           forwardHeaders[key] = value;
         }
       }
 
-      const auth = await authenticate(
-        ctx,
-        path,
-        kind,
-        username,
-        password,
-        authHeader,
-      );
-      if (!auth.ok) {
-        ctx.status = auth.status;
-        if (auth.status === 401) {
-          ctx.set("WWW-Authenticate", 'Basic realm="Git"');
-        }
-        ctx.body = auth.message;
-        return;
-      }
-      // Who the push is by, for the feed cache: known at once for a token or
-      // an app sign-in, looked up from the Gitea username otherwise.
-      const appUserId = auth.appUserId;
-      forwardHeaders["Authorization"] = auth.authorization;
+      // Who the push is by, for the feed cache: known at once for Cloudflare
+      // Access, a token, or an app sign-in, looked up from the Gitea username
+      // otherwise.
+      let appUserId: string | undefined;
+      let username = "";
+      let warnPassword = false;
 
-      if (warnPassword) {
-        // The credential and the username stay out of the log: the count by
-        // path is what decides when `deny` can ship.
-        proxyLogger.warn("Git password sign-in", { credential: kind, path });
-        gitHttpPasswordAuthTotal.inc({ path: kind });
+      if (accessClaims) {
+        const userId = cloudflareAccessUserId(
+          accessClaims.issuer,
+          accessClaims.subject,
+        );
+        const user = await layers.database.models.user.getById(
+          layers.database.db,
+          userId,
+        );
+        if (!user || user.isBlocked) {
+          ctx.status = 401;
+          ctx.body = "Cloudflare Access identity is not provisioned";
+          return;
+        }
+
+        appUserId = user.id;
+        const ledgerAuth = Buffer.from(
+          `${user.ledger_username}:${user.ledger_password}`,
+        ).toString("base64");
+        forwardHeaders["Authorization"] = `Basic ${ledgerAuth}`;
+
+        proxyLogger.debug("Proxying git request (Cloudflare Access)", {
+          path,
+          method: ctx.method,
+          userId,
+          ledgerUsername: user.ledger_username,
+        });
+      } else {
+        const [basicUsername, password] = credentials!;
+        username = basicUsername;
+        const kind = gitCredentialKind(username, password);
+        warnPassword = kind !== "token" && passwordAuth === "warn";
+
+        const auth = await authenticate(
+          ctx,
+          path,
+          kind,
+          username,
+          password,
+          authHeader,
+        );
+        if (!auth.ok) {
+          ctx.status = auth.status;
+          if (auth.status === 401) {
+            ctx.set("WWW-Authenticate", 'Basic realm="Git"');
+          }
+          ctx.body = auth.message;
+          return;
+        }
+        appUserId = auth.appUserId;
+        forwardHeaders["Authorization"] = auth.authorization;
+
+        if (warnPassword) {
+          // The credential and the username stay out of the log: the count by
+          // path is what decides when `deny` can ship.
+          proxyLogger.warn("Git password sign-in", { credential: kind, path });
+          gitHttpPasswordAuthTotal.inc({ path: kind });
+        }
+        proxyLogger.debug("Proxying git request", {
+          path,
+          method: ctx.method,
+          credential: kind,
+        });
       }
-      proxyLogger.debug("Proxying git request", {
-        path,
-        method: ctx.method,
-        credential: kind,
-      });
 
       const refPolicy = await rejectNonMainPush(ctx, path);
       if (refPolicy.handled) return;
