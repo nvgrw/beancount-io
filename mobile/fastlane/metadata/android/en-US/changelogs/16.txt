@@ -1,8 +1,0 @@
-What's New in Version 1.20250911.16:
-
-• ✨ Enhanced Journal Screen: Full internationalization support with translations in 13+ languages
-• 🎨 Improved Navigation: Moved Journal tab to better position (between Home and Ledger)
-• 🔧 Better Type Safety: Replaced any types with proper GraphQL generated types
-• 💰 Real Account Data: Fixed hardcoded account totals to show actual financial data
-• 🌍 Added support for Income, Expenses, and Equity account types in account hierarchy
-• 📱 Improved UI: More compact header design for better screen space utilization

@@ -1,7 +1,0 @@
-What's New in Version 1.20250922.34:
-
-• Updated internationalization for login screen
-• Added user deletion functionality
-• Upgraded to Expo SDK 54
-• Removed outdated changelog and feature flags
-• General improvements and code cleanup

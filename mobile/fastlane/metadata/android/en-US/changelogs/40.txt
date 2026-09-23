@@ -1,3 +1,0 @@
-What's New in Version 1.20260731.40:
-
-• Fixed referral links so invitations open the sign-up page correctly and preserve referral credit.
