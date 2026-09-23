@@ -204,8 +204,8 @@ services:
 
   ledger:
     build:
-      context: ${SOURCE_ROOT:-../..}/backend-cluster/ledger
-      dockerfile: Dockerfile
+      context: ${SOURCE_ROOT:-../..}
+      dockerfile: backend-cluster/ledger-python/Dockerfile
     image: beancount-io/ledger:${BEANCOUNT_IMAGE_TAG:-selfhosted}
     platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
@@ -214,23 +214,24 @@ services:
       - private
     expose:
       - "8000"
+    volumes:
+      - ./data/gitea:/gitea-data:ro
+      - ./data/ledger-python-cache:/var/cache/beancount-python
     depends_on:
       gitea:
         condition: service_healthy
     environment:
-      NODE_ENV: production
       PORT: 8000
       GITEA_HOST_NAME: gitea
       GITEA_HTTP_PORT: 3000
-      BACKEND_V2_HOST_NAME: backend-v2
-      BACKEND_V2_HTTP_PORT: 4104
-      BACKEND_V2_ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN in .env}
+      GITEA_REPOSITORIES_ROOT: /gitea-data/git/repositories
+      PYTHON_LEDGER_CACHE_ROOT: /var/cache/beancount-python
+      WEBHOOK_TOKEN: ${LEDGER_WEBHOOK_TOKEN:-}
       # Managed price includes (ADR 015): origins the ledger may fetch price
       # feeds from. Only beancount.io unless overridden; "" disables the feature.
       MANAGED_PRICE_ORIGINS: ${MANAGED_PRICE_ORIGINS:-https://beancount.io}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8000/healthz"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 5

@@ -156,6 +156,43 @@ docker image inspect beancount-io/backend-v2:selfhosted \
 
 The expected value is `linux/amd64`.
 
+## Python ledger runtime
+
+The production `ledger` service is built from
+`backend-cluster/ledger-python`. It loads repositories with Python Beancount
+and the project-compatible Fava modules, so ordinary Python plugins declared by
+the ledger execute during every load. Repository snapshots are read from
+Gitea's data directory through a read-only mount; materialized snapshots and
+installed plugin dependencies are cached under
+`./data/ledger-python-cache`.
+
+Ledger repositories are trusted code in this self-hosted deployment. A
+repository may add `.beancountio-requirements.txt` at its root to install extra
+Python packages into a cache keyed by that file's SHA-256 digest. Package
+installation runs only when a new digest is first loaded. Keep the file pinned
+and review plugin code before granting access to a repository.
+
+To rebuild and recreate only the ledger service:
+
+```zsh
+cd /srv/docker/beancount-io
+docker compose build ledger
+docker compose up -d --no-deps --force-recreate --wait ledger
+docker compose ps ledger
+```
+
+Before a runtime upgrade, retain the current image under a rollback tag and
+copy the Compose file. A rollback does not touch Gitea or either database:
+
+```zsh
+docker tag beancount-io/ledger:selfhosted beancount-io/ledger:rollback
+cp compose.yaml compose.yaml.rollback
+
+# Restore compose.yaml.rollback, then:
+docker tag beancount-io/ledger:rollback beancount-io/ledger:selfhosted
+docker compose up -d --no-deps --force-recreate --wait ledger
+```
+
 ### Build once and transfer to another server
 
 The three project images can be built on one machine, saved in one archive, and

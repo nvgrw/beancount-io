@@ -25,6 +25,8 @@ yarn-error.log*
 # Caches
 .eslintcache
 .cache/
+__pycache__/
+*.py[cod]
 
 # Build / dependency artifacts.
 # These belong inside packages (e.g. mobile/node_modules), never at the repo root.
