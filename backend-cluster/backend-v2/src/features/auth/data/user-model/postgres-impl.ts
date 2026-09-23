@@ -84,9 +84,9 @@ export class UserPostgresModel implements IUserModel {
 
   public async create(db: DbExecutor, input: CreateUserInput): Promise<User> {
     // Generate unique user ID using nanoid
-    const userId = nanoid();
+    const userId = input.id ?? nanoid();
 
-    const hashedPassword = input.password;
+    const hashedPassword = input.password ?? null;
     const now = new Date();
 
     const result = await db

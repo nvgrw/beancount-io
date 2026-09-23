@@ -54,30 +54,27 @@ function mcpManifest(config: AppConfig) {
   };
 }
 
-const IOS_BUNDLE_ID = "io.beancount.ios";
-const ANDROID_PACKAGE = "io.beancount.android";
-
-function appleAppSiteAssociation(teamId: string) {
+function appleAppSiteAssociation(teamId: string, bundleId: string) {
   return {
     applinks: {
       apps: [] as string[],
       details: [
         {
-          appID: `${teamId}.${IOS_BUNDLE_ID}`,
-          paths: ["/ledger/*"],
+          appID: `${teamId}.${bundleId}`,
+          paths: ["/ledger/*", "/oauth/callback"],
         },
       ],
     },
   };
 }
 
-function assetLinks(fingerprints: readonly string[]) {
+function assetLinks(packageName: string, fingerprints: readonly string[]) {
   return [
     {
       relation: ["delegate_permission/common.handle_all_urls"],
       target: {
         namespace: "android_app",
-        package_name: ANDROID_PACKAGE,
+        package_name: packageName,
         sha256_cert_fingerprints: [...fingerprints],
       },
     },
@@ -113,7 +110,7 @@ export function setWellKnownRoutes(router: Router, config: AppConfig): void {
     }
     ctx.type = "application/json";
     ctx.set("Cache-Control", "public, max-age=3600");
-    ctx.body = appleAppSiteAssociation(teamId);
+    ctx.body = appleAppSiteAssociation(teamId, config.appLinks.iosBundleId);
   });
 
   router.get("/.well-known/assetlinks.json", (ctx) => {
@@ -124,6 +121,6 @@ export function setWellKnownRoutes(router: Router, config: AppConfig): void {
     }
     ctx.type = "application/json";
     ctx.set("Cache-Control", "public, max-age=3600");
-    ctx.body = assetLinks(fingerprints);
+    ctx.body = assetLinks(config.appLinks.androidPackage, fingerprints);
   });
 }

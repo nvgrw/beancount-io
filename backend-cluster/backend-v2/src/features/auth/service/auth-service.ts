@@ -35,6 +35,11 @@ import {
 } from "@/shared/email-templates";
 import type { MagicLinkToken } from "@/features/auth/data/magic-link-token-model";
 import type { SignupOtpSession } from "@/features/auth/data/signup-otp-session-model";
+import type { User } from "@/features/auth/data/user-model";
+import {
+  cloudflareAccessUserId,
+  type CloudflareAccessClaims,
+} from "@/features/auth/utils/cloudflare-access";
 
 type RegisterUserParams = {
   email: string;
@@ -72,6 +77,10 @@ export type SignInWithOneTimeTokenParams = {
 export type AuthResponse = {
   token: string;
   expireAt: Date;
+};
+
+export type EnsureCloudflareAccessUserParams = CloudflareAccessClaims & {
+  ip: string;
 };
 
 const MAX_PASSWORD_LENGTH = 128;
@@ -118,6 +127,9 @@ const DISPOSABLE_EMAIL_DOMAINS = new Set([
 ]);
 
 export interface IAuthService {
+  ensureCloudflareAccessUser(
+    params: EnsureCloudflareAccessUserParams,
+  ): Promise<User>;
   registerUser(params: RegisterUserParams): Promise<AuthResponse>;
   loginUser(params: LoginUserParams): Promise<AuthResponse>;
   signInWithMagicLinkToken(
@@ -153,6 +165,73 @@ export class AuthService implements IAuthService {
     private readonly favaClientFactory: IFavaClientFactory,
     private readonly config: Pick<AppConfig, "favaApi" | "dashboard" | "gitea">,
   ) {}
+
+  public ensureCloudflareAccessUser = async (
+    params: EnsureCloudflareAccessUserParams,
+  ): Promise<User> => {
+    const email = params.email.toLowerCase().trim();
+    const userId = cloudflareAccessUserId(params.issuer, params.subject);
+    const existing = await this.models.user.getById(this.db, userId);
+    if (existing) {
+      if (existing.email.toLowerCase() !== email) {
+        throw new ConflictError(
+          "Cloudflare Access identity",
+          "subject email changed",
+        );
+      }
+      if (existing.isBlocked) throw new ForbiddenError("User is blocked");
+      return existing;
+    }
+
+    const emailOwner = await this.models.user.getByMail(this.db, email);
+    if (emailOwner) {
+      throw new ConflictError(
+        "Cloudflare Access identity",
+        "email belongs to an unlinked account",
+      );
+    }
+
+    const ledger_username = `cf_${userId.slice(4, 20).toLowerCase()}`;
+    const ledger_password = generateLedgerPassword();
+    const favaAdminApiClient = this.favaClientFactory.getAdminClient();
+
+    return lock.acquire(LOCK_KEYS.USER.register(email), () =>
+      this.db.transaction(async (tx) => {
+        const userById = await this.models.user.getById(tx, userId);
+        if (userById) return userById;
+        if (await this.models.user.getByMail(tx, email)) {
+          throw new ConflictError(
+            "Cloudflare Access identity",
+            "email belongs to an unlinked account",
+          );
+        }
+
+        const user = await this.models.user.create(tx, {
+          id: userId,
+          email,
+          ip: params.ip,
+          locale: "en",
+          ledger_username,
+          ledger_password,
+        });
+
+        await favaAdminApiClient.admin.createUser(
+          {
+            username: ledger_username,
+            password: ledger_password,
+            email,
+          },
+          {
+            headers: getBasicAuthHeader(
+              this.config.favaApi.adminUser,
+              this.config.favaApi.adminPassword,
+            ),
+          },
+        );
+        return user;
+      }),
+    );
+  };
 
   public registerUser = async (
     params: RegisterUserParams,
