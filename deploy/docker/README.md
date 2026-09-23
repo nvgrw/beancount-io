@@ -5,6 +5,10 @@ backend API, ledger service, Gitea, two PostgreSQL databases, Redis, and Caddy.
 This target is intended for a persistent Linux server or VM. For local macOS
 development, use [`../docker-mac/`](../docker-mac/) instead.
 
+See the [self-hosted branch guide](../../README.md) for every difference
+from `main` and the recommended image-bundle build and server installation
+workflow.
+
 The topology follows Docker's production guidance: application code stays in
 the images, state lives under `./data`, services restart automatically,
 readiness is health-gated, and container logs are bounded. Caddy serves HTTP
@@ -204,9 +208,23 @@ docker compose up -d --no-deps --force-recreate --wait ledger
 
 ### Build once and transfer to another server
 
-The three project images can be built on one machine, saved in one archive, and
-loaded on another Docker host. Persistent volumes and `.env` secrets are not
-included in the image archive.
+The recommended workflow builds every project image, pulls every dependency
+image, verifies Linux AMD64 architecture, and packages images plus exact source
+and server-ready deployment files:
+
+```zsh
+cp deploy/docker/.env.example deploy/docker/.env.build
+# Configure deploy/docker/.env.build, then:
+scripts/build-self-hosted-bundle.sh
+```
+
+See the [root guide](../../README.md#build-a-transfer-bundle) for the
+artifact layout and complete installation commands. Persistent data and `.env`
+secrets are never included.
+
+The equivalent manual workflow follows for troubleshooting or custom image
+selection. The three project images can be built on one machine, saved in one
+archive, and loaded on another Docker host.
 
 On the build machine, start from a committed revision of the repository. Create
 a build-only environment file and set the destination's public hostnames before
