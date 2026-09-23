@@ -47,7 +47,10 @@ Edit `.env`:
 1. Set `APP_DOMAIN`, `GIT_DOMAIN`, and `ACME_EMAIL`.
 2. Replace every `change-me` value. `openssl rand -hex 32` produces values that
    are both strong and safe inside the generated PostgreSQL URI.
-3. Configure optional integrations only when you need them. The committed
+3. Keep `SELF_HOSTED_UNLIMITED=true` to disable Stripe billing and grant every
+   local user unlimited ledgers, collaborators, directives, AI quota, and API
+   keys. The dashboard omits subscription controls in this mode.
+4. Configure optional integrations only when you need them. The committed
    BlockEden placeholder lets the API boot but does not enable AI.
 
 Validate without starting containers, then build and start the stack:
@@ -66,11 +69,11 @@ Two one-shot services should finish with exit code 0:
 
 Once the health checks pass, open:
 
-| Service | URL |
-| --- | --- |
-| Dashboard | `https://<APP_DOMAIN>` |
-| API | `https://<APP_DOMAIN>/api-gateway/` |
-| Gitea | `https://<GIT_DOMAIN>` |
+| Service   | URL                                 |
+| --------- | ----------------------------------- |
+| Dashboard | `https://<APP_DOMAIN>`              |
+| API       | `https://<APP_DOMAIN>/api-gateway/` |
+| Gitea     | `https://<GIT_DOMAIN>`              |
 
 ### OAuth signing key
 
@@ -119,22 +122,22 @@ record, because that would create a path around Access.
 Configure Cloudflare Zero Trust as follows:
 
 1. Keep the Authelia portal in its own Access application, using the desired
-  Cloudflare account authentication policy.
+   Cloudflare account authentication policy.
 2. Create one self-hosted Access application for the Beancount hostnames, or a
-  wildcard covering them, so every published hostname produces the same AUD
-  tag. Select Authelia as that application's identity provider.
+   wildcard covering them, so every published hostname produces the same AUD
+   tag. Select Authelia as that application's identity provider.
 3. Protect every application path, including `/api-gateway/*`. Do not add an
-  API bypass or service-token exception for the iOS app.
+   API bypass or service-token exception for the iOS app.
 4. Enable Managed OAuth and dynamic client registration for the Beancount
-  Access application, then allow the exact redirect
-  `https://<APP_DOMAIN>/oauth/callback`. The iOS app discovers Cloudflare's
-  protected-resource metadata and dynamically registers a public PKCE client;
-  it stores no client secret.
+   Access application, then allow the exact redirect
+   `https://<APP_DOMAIN>/oauth/callback`. The iOS app discovers Cloudflare's
+   protected-resource metadata and dynamically registers a public PKCE client;
+   it stores no client secret.
 5. Add one narrowly scoped bypass for
-  `/.well-known/apple-app-site-association` when shipping the iOS app. Apple
-  must fetch this static app-link voucher without an interactive login. It
-  contains only the Apple Team ID, bundle ID, and allowed paths; no API or
-  financial data is exposed.
+   `/.well-known/apple-app-site-association` when shipping the iOS app. Apple
+   must fetch this static app-link voucher without an interactive login. It
+   contains only the Apple Team ID, bundle ID, and allowed paths; no API or
+   financial data is exposed.
 
 Access injects `Cf-Access-Jwt-Assertion` after authentication. Backend-v2
 validates its signature, issuer, and exact application audience, then
@@ -178,28 +181,118 @@ docker image inspect beancount-io/backend-v2:selfhosted \
 
 The expected value is `linux/amd64`.
 
-To transfer prebuilt application images instead of rebuilding on the target
-server, copy the source and image archives to the host, then load and start them
-with `--no-build`:
+### Build once and transfer to another server
+
+The three project images can be built on one machine, saved in one archive, and
+loaded on another Docker host. Persistent volumes and `.env` secrets are not
+included in the image archive.
+
+On the build machine, start from a committed revision of the repository. Create
+a build-only environment file and set the destination's public hostnames before
+building. `APP_DOMAIN` and `SELF_HOSTED_UNLIMITED` are compiled into the
+dashboard bundle, so changing either requires rebuilding that image.
 
 ```zsh
-sudo mkdir -p /srv/docker/beancount-io
-sudo tar -xzf /tmp/beancount-io-source.tar.gz -C /srv/docker/beancount-io
-docker load < /tmp/beancount-web-amd64-images.tar.gz
+cd deploy/docker
+cp .env.example .env.build
+chmod 600 .env.build
 
-cd /srv/docker/beancount-io/deploy/docker
+# Edit at least these build inputs in .env.build:
+# APP_DOMAIN=books.example.com
+# GIT_DOMAIN=git.books.example.com
+# DOCKER_PLATFORM=linux/amd64
+# SELF_HOSTED_UNLIMITED=true
+
+docker compose --env-file .env.build config --quiet
+docker compose --env-file .env.build build backend-v2 dashboard ledger
+```
+
+Verify every project image has the destination architecture, then package the
+images and the exact committed source revision. Keeping the source beside the
+images lets the destination validate Compose and rebuild later; it contains no
+`.env` file or Docker volume data.
+
+```zsh
+for image in \
+  beancount-io/backend-v2:selfhosted \
+  beancount-io/dashboard:selfhosted \
+  beancount-io/ledger:selfhosted
+do
+  docker image inspect "$image" --format '{{.RepoTags}} {{.Os}}/{{.Architecture}}'
+done
+
+repo_root=$(git rev-parse --show-toplevel)
+output_dir="$(dirname "$repo_root")"
+
+docker save \
+  beancount-io/backend-v2:selfhosted \
+  beancount-io/dashboard:selfhosted \
+  beancount-io/ledger:selfhosted \
+  | gzip -1 > "$output_dir/beancount-io-images-linux-amd64.tar.gz"
+
+git -C "$repo_root" archive \
+  --format=tar.gz \
+  --output="$output_dir/beancount-io-source.tar.gz" \
+  HEAD
+
+cd "$output_dir"
+shasum -a 256 \
+  beancount-io-images-linux-amd64.tar.gz \
+  beancount-io-source.tar.gz \
+  > beancount-io-transfer.sha256
+```
+
+The example uses macOS `shasum`. On a Linux build machine, use
+`sha256sum` instead. Transfer all three files:
+
+```zsh
+scp \
+  beancount-io-images-linux-amd64.tar.gz \
+  beancount-io-source.tar.gz \
+  beancount-io-transfer.sha256 \
+  user@server:/tmp/
+```
+
+On the destination Linux server, verify before extracting or loading. Adjust
+ownership/group arguments to match that host's Docker administration policy.
+
+```zsh
+cd /tmp
+sha256sum -c beancount-io-transfer.sha256
+
+sudo install -d -o "$USER" -g docker /srv/docker/beancount-io/source
+sudo tar -xzf beancount-io-source.tar.gz \
+  -C /srv/docker/beancount-io/source
+
+docker load < beancount-io-images-linux-amd64.tar.gz
+
+for image in \
+  beancount-io/backend-v2:selfhosted \
+  beancount-io/dashboard:selfhosted \
+  beancount-io/ledger:selfhosted
+do
+  docker image inspect "$image" --format '{{.RepoTags}} {{.Os}}/{{.Architecture}}'
+done
+```
+
+Configure and start from the transferred source. Use `--no-build` so Compose
+uses the loaded application images rather than rebuilding them.
+
+```zsh
+cd /srv/docker/beancount-io/source/deploy/docker
 cp .env.example .env
 chmod 600 .env
-# Replace every change-me value and configure the domains and Access settings.
-export COMPOSE_FILE=docker-compose.yml:docker-compose.cloudflare.yml
+# Replace every change-me value and configure domains and Access settings.
+
 docker compose config --quiet
-docker compose up -d --no-build
+docker compose pull caddy gitea postgres-gitea postgres-backend redis
+docker compose up -d --no-build --wait
 docker compose ps --all
 ```
 
-Compose still pulls the pinned Caddy, Gitea, PostgreSQL, and Redis images. The
-three locally built application images are loaded from the transfer archive and
-must report `linux/amd64` before startup.
+If cloudflared or another reverse proxy runs in a separate Compose project, add
+the appropriate deployment override before the final `config` and `up`
+commands. Do not publish an unprotected origin path around Cloudflare Access.
 
 ## iOS build for this deployment
 
