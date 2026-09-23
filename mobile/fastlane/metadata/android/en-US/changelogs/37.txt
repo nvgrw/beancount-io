@@ -1,6 +1,0 @@
-What's New in Version 1.20251212.37:
-
-• Added React Native detection flag to dashboard WebView for better web-app integration
-• Added empty state for filtered journal results to improve user experience
-• Fixed journal screen theme-aware overlay color and adjusted snap points
-• Refactored journal screen for improved performance and maintainability
