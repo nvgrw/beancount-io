@@ -1,32 +1,36 @@
- FROM node:22.23.4-alpine
+FROM node:22.23.4-alpine AS builder
 
- # Set working directory
- WORKDIR /app
+WORKDIR /app
 
- # Install system dependencies including Yarn
- RUN apk add --no-cache git yarn
+RUN apk add --no-cache git yarn
 
- # Copy package files
- COPY package.json yarn.lock* ./
+COPY package.json yarn.lock* ./
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+	yarn install --ignore-scripts --non-interactive
 
- # Install dependencies (generate lockfile if needed)
- # Note: Peer dependency warnings for @as-integrations/koa are expected and non-blocking
- # Clear the download caches in the same layer: they are never read at runtime
- # and otherwise add ~10 GB to the image.
- RUN yarn install && \
-     yarn cache clean && \
-     rm -rf /usr/local/share/.cache /root/.cache /tmp/*
+COPY . .
+RUN find src scripts -type d \( -name '__tests__' -o -name '__mocks__' \) -prune -exec rm -rf {} + && \
+	find src scripts -type f \( -name '*.test.ts' -o -name '*.test.js' \) -delete && \
+	yarn build
 
- # Copy source code
- COPY . .
+# Keep only runtime dependencies in the layer copied to the final image.
+RUN --mount=type=cache,target=/usr/local/share/.cache/yarn \
+	yarn install --production --ignore-scripts --non-interactive --no-lockfile && \
+	rm -rf /root/.cache /tmp/*
 
- # Expose port
- EXPOSE 4104
+FROM node:22.23.4-alpine
 
- # Set environment variables
- ENV NODE_ENV=production
- ENV PORT=4104
+WORKDIR /app
 
- # Start the application
- CMD ["yarn", "start"]
+ENV NODE_ENV=production
+ENV PORT=4104
 
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/scripts/migrate-deploy.js ./scripts/migrate-deploy.js
+COPY --from=builder /app/src/drizzle/migrations ./src/drizzle/migrations
+
+EXPOSE 4104
+
+CMD ["node", "dist/server.js"]

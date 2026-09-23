@@ -1,332 +1,394 @@
-<p align="center">
-  <a href="https://beancount.io/?utm_source=github.com&utm_medium=readme&utm_campaign=oss">
-    <img width="88" src="https://beancount.io/img/favicon.png" alt="Beancount.io logo">
-  </a>
-</p>
+# Self-hosted branch guide
 
-<h1 align="center">Beancount.io</h1>
+This branch is a focused, single-host Beancount.io deployment. It intentionally
+differs from `main`; it is not a general replacement for the hosted product.
+The deployment target is Linux AMD64 with Docker Compose, a host-managed
+Cloudflare Tunnel, Cloudflare Access, and trusted private ledger repositories.
 
-<p align="center">
-  <strong>Your money in plain text, forever.</strong>
-  <br>
-  Beautiful reports, a phone app, a terminal CLI, and AI agents that can actually do your books.
-</p>
+## Differences from `main`
 
-<p align="center">
-  <sub>No lock-in. No database you can't read. Your ledger is a <code>.bean</code> file you own, diff, and back up with Git.</sub>
-</p>
+### Product surface
 
-<p align="center">
-  <a href="https://beancount.io/ledger/open_ledger/example/income-statement?utm_source=github.com&utm_medium=readme&utm_campaign=live-demo"><strong>Live demo</strong></a>
-  &nbsp;·&nbsp;
-  <a href="#try-it-in-30-seconds"><strong>Quickstart</strong></a>
-  &nbsp;·&nbsp;
-  <a href="#agents-and-mcp"><strong>Agents</strong></a>
-  &nbsp;·&nbsp;
-  <a href="#self-host"><strong>Self-host</strong></a>
-  &nbsp;·&nbsp;
-  <a href="#contributing"><strong>Contribute</strong></a>
-</p>
+- `mobile/` is removed. This branch ships the web dashboard, backend, Git
+  service, and ledger runtime only.
+- Self-hosted mode is unlimited. Backend ledger, collaborator, directive, AI,
+  and API-key quota checks use unlimited sentinels; the dashboard hides billing
+  and quota indicators.
+- Stripe is not configured by the self-hosted Compose target. The dashboard
+  skips subscription-quota GraphQL requests, Stripe environment variables are
+  absent, and the backend omits Stripe webhooks and subscription resolvers when
+  `SELF_HOST=true`.
 
-<p align="center">
-  <a href="https://github.com/bex-co/beancount-io"><img src="https://img.shields.io/github/stars/bex-co/beancount-io?style=flat-square&logo=github&label=Star" alt="Star Beancount.io on GitHub"></a>
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT license"></a>
-  <a href="https://pypi.org/project/beancount-io/"><img src="https://img.shields.io/pypi/v/beancount-io?style=flat-square&label=bea%20cli" alt="beancount-io on PyPI"></a>
-  <a href="https://t.me/beancount"><img src="https://img.shields.io/badge/chat-Telegram-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Join the Telegram chat"></a>
-</p>
+### Authentication and ingress
 
-<p align="center">
-  <a href="https://beancount.io/ledger/open_ledger/example/income-statement">
-    <img src="./docs/images/income-statement-overview.webp" alt="Beancount.io income statement showing monthly net profit and detailed income and expense account trees">
-  </a>
-</p>
+- Cloudflare Access is the identity boundary for browser, API, mobile-OAuth
+  compatibility, and smart Git HTTPS traffic.
+- Backend-v2 validates the Access assertion issuer, audience, and signature,
+  then provisions the corresponding local and Gitea user.
+- Password, signup, reset, magic-link, and refresh-token ceremonies are disabled
+  while Access mode is configured.
+- The dashboard forwards Access identity during SSR and uses Access logout.
+- Caddy serves plain HTTP only on `127.0.0.1:8004`; host-managed cloudflared is
+  the public ingress and TLS endpoint. No public origin listener is configured.
+- Gitea's web UI is bound only to `127.0.0.1:9091` for SSH-tunneled maintenance.
 
-<p align="center">
-  <a href="https://beancount.io/ledger/open_ledger/example/income-statement"><img width="49%" src="./docs/images/income-statement-expenses.webp" alt="Monthly expenses shown as a stacked bar chart"></a>
-  <a href="https://beancount.io/ledger/open_ledger/example/income-statement"><img width="49%" src="./docs/images/income-statement-expenses-hierarchy.webp" alt="Expenses shown as an interactive account hierarchy treemap"></a>
-</p>
+### Git
 
-<p align="center">
-  <sub>Plain-text ledger in, reports you can explore out — <a href="https://beancount.io/ledger/open_ledger/example/income-statement">open the live example</a>, no sign-up.</sub>
-</p>
+- Smart Git HTTPS is routed through backend-v2 on the application hostname.
+- Backend-v2 maps a verified Access identity to internal Gitea credentials and
+  enforces the main-branch policy.
+- `scripts/git-credential-cloudflare-access.py` provides Managed OAuth, dynamic
+  client registration, PKCE, loopback callback, refresh, revocation, and macOS
+  Keychain storage for command-line Git.
 
----
+### State and deployment
 
-## Pick your way in
+- Persistent state uses bind mounts below `deploy/docker/data/` rather than
+  anonymous or named Compose volumes. This includes both PostgreSQL databases,
+  Gitea, Redis, Caddy, and the Python ledger cache.
+- The production Compose project has one public host binding: Caddy on loopback.
+  Backend-v2, dashboard, ledger, Redis, and PostgreSQL remain private.
+- `SELF_HOST=true` is the default deployment policy.
+- The deployment supports a flattened server layout with `compose.yaml`,
+  `Caddyfile`, `.env`, `data/`, and `source/` below one directory.
 
-<table>
-  <tr>
-    <td width="33%" valign="top">
-      <h3>👀 Look first</h3>
-      Click through reports on a real example ledger. No account, no install.
-      <br><br>
-      <a href="https://beancount.io/ledger/open_ledger/example/income-statement"><strong>Open the live demo →</strong></a>
-    </td>
-    <td width="33%" valign="top">
-      <h3>⌨️ Terminal</h3>
-      One command installs <code>bea</code>; it provisions its own engine.
-      <br><br>
-      <a href="#try-it-in-30-seconds"><strong>First transaction in 30s →</strong></a>
-    </td>
-    <td width="33%" valign="top">
-      <h3>🤖 Agent</h3>
-      Skills for Claude Code and Codex, plus a remote MCP server.
-      <br><br>
-      <a href="#agents-and-mcp"><strong>Hand your agent the books →</strong></a>
-    </td>
-  </tr>
-</table>
+### Ledger runtime
 
-## Try it in 30 seconds
+- `backend-cluster/ledger-python` replaces the TypeScript/Rust-WASM ledger
+  service in production while preserving the `ledger:8000` Compose service
+  contract used by backend-v2.
+- The runtime uses Python 3.12, Beancount, Beanquery, and the repository's
+  compatible Fava modules. Native Python plugins execute during ledger load.
+- Repositories may declare pinned plugin dependencies in
+  `.beancountio-requirements.txt`. Repositories are trusted code in this private
+  deployment.
+- A root `.beancountio.json` may select a repository-relative `.bean` or
+  `.beancount` entrypoint; otherwise `main.bean` is used.
+- The Python service implements all canonical ledger API path/method pairs,
+  including reports, journals, BQL, source edits, file and repository adapters,
+  administration, webhooks, and legacy compatibility.
+- Entry hashes are engine-specific and must not be persisted across a runtime
+  switch.
 
-No install. No empty-ledger setup. Just record your first real transaction:
+### Ledger performance and resource policy
 
-1. **Sign up** at [beancount.io/sign-up](https://beancount.io/sign-up) — already have an account? [Log in](https://beancount.io/login).
-2. **Open your ledger** (create one if prompted — it takes seconds).
-3. **Record a transaction** — on the web open your ledger's Journal and add an entry; on mobile tap **Add Transaction**. Try a coffee run: `Expenses:Dining 12.50` paid from `Assets:Checking`.
-4. **See it land** — check the journal, then watch the income statement and balance sheet update.
+- Each worker has an eight-entry parsed-ledger LRU keyed by commit, entrypoint,
+  effective date, and materialized root. Concurrent misses for one key are
+  coalesced.
+- Unique parse misses queue to a bounded depth of 32.
+- Two Uvicorn workers provide process isolation and parallelism for trusted
+  Python plugins. Each worker owns its imports, HTTP pool, queue, and LRU.
+- Gitea requests share one lifespan-scoped `httpx.AsyncClient` per worker.
+- BQL shell state is request-local.
+- Projected checks and source edits use hard-linked copy-on-write workspaces on
+  the ledger-cache filesystem.
+- Ledger source limits match the prior Rust loader: 4,096 source files, 8 MiB
+  per source file, 32 MiB aggregate, and 16 KiB for `.beancountio.json`.
+- Materialized snapshots, dependency environments, temporary workspaces, and
+  lock bookkeeping are bounded and evicted.
 
-That's the whole idea: double-entry books you can read as plain text, with reports, phone, terminal, and agents on top of the same ledger.
+## From-scratch deployment
 
-<details>
-<summary><strong>Prefer the terminal? Same first transaction from the CLI</strong></summary>
+This workflow builds a complete Linux AMD64 transfer bundle on one machine and
+installs it on a fresh Docker host. The examples use `books.example.com` and
+`user@server`; replace them with the deployment's application hostname and SSH
+destination. The target host needs Docker Engine with Compose, an SSH account
+that can run Docker, and a host-managed Cloudflare Tunnel.
 
-You don't install Beancount yourself — one command installs `bea`, which provisions its engine for you.
+### 1. Prepare the build environment
+
+Install Docker Engine or Docker Desktop with Compose, Git, Bash, `tar`, and
+`gzip` on the build machine. Allow enough free space for all application and
+dependency images. Start from a clean committed revision: the source archive is
+made from `HEAD`, not from uncommitted files.
+
+Create the build environment:
 
 ```zsh
-brew install bex-co/tap/bea      # macOS / Linuxbrew
-# or: uv tool install beancount-io   # anywhere with uv + Python 3.12+
+cd /path/to/beancount-io
+cp deploy/docker/.env.example deploy/docker/.env.build
+chmod 600 deploy/docker/.env.build
 ```
+
+Set at least:
+
+```dotenv
+APP_DOMAIN=books.example.com
+DOCKER_PLATFORM=linux/amd64
+SELF_HOST=true
+```
+
+Replace every required `change-me` value so Compose validation succeeds. These
+values are used to render Compose; `.env.build` is not included in the bundle.
+`APP_DOMAIN` and `SELF_HOSTED_UNLIMITED` are compiled into the dashboard image,
+so their build values must match the target deployment. Runtime secrets may be
+generated independently on the target host.
+
+Confirm that the committed revision is clean, then build from the repository
+root:
 
 ```zsh
-bea --no-input init books --currency USD --date 2026-08-01 \
-  --opening-balance "Assets:Checking 1000"
-cd books
-bea add transaction "Coffee" --date 2026-08-02 \
-  --posting "Expenses:Dining 12.50" --posting "Assets:Checking"
-bea check && bea report balance-sheet
+git status --short
+scripts/build-self-hosted-bundle.sh
 ```
 
-Checking now holds **987.50 USD** — validated, formatted, and readable as plain text.
+`git status --short` must produce no output. The bundle script also enforces
+this requirement.
 
-</details>
+Optional paths:
 
-**Then:** record two or three real transactions · open the [live demo](https://beancount.io/ledger/open_ledger/example/income-statement) and click through the balance sheet and account trees · automate with the [CLI tutorial](./cli/docs/TUTORIAL.md) or point your coding agent at the [skills](#agents-and-mcp).
+```zsh
+scripts/build-self-hosted-bundle.sh \
+  --env-file deploy/docker/.env.build \
+  --output-dir dist/self-hosted
+```
 
-**Already keep Beancount books?** Bring them as they are: `bea init --existing` reads your ledger, writes an `AGENTS.md` that tells your coding agent its root, includes and plugins, and changes no ledger file. See [bring an existing ledger](./docs/skills/existing-ledger.md).
+The script:
 
-## Who this is for
+1. refuses a dirty worktree;
+2. validates Compose;
+3. builds backend-v2, dashboard, and the Python ledger for Linux AMD64;
+4. pulls the Caddy, Gitea, PostgreSQL, and Redis images required by Compose;
+5. verifies every image is `linux/amd64`;
+6. writes a compressed Docker image archive;
+7. writes a server-ready deployment archive containing `compose.yaml`,
+   `Caddyfile`, `.env.example`, the exact committed source, and `REVISION`;
+8. writes a SHA-256 manifest for both archives.
 
-<table>
-  <tr>
-    <td width="33%" valign="top"><strong>Plain-text purists</strong><br>Double-entry accounting in files that outlive any app, work with Git, and open in any editor.</td>
-    <td width="33%" valign="top"><strong>Developers</strong><br>Script, query, and build on your finances from Python and the terminal instead of exporting CSVs from a SaaS.</td>
-    <td width="33%" valign="top"><strong>Agent users</strong><br>Have Claude Code, Codex, or another coding agent import statements, reconcile accounts, and close the month — every write checked and confirm-gated.</td>
-  </tr>
-</table>
+Artifacts are revision-stamped under `dist/self-hosted/`:
 
-## Every surface, one ledger
+```text
+beancount-io-images-linux-amd64-<revision>.tar.gz
+beancount-io-deploy-<revision>.tar.gz
+beancount-io-transfer-<revision>.sha256
+```
 
-| You want to… | Use | Start |
-| --- | --- | --- |
-| Work from the terminal or scripts | `bea` CLI and Python library | [CLI tutorial](./cli/docs/TUTORIAL.md) · [reference](./cli/docs/USAGE.md) |
-| See polished reports in a browser | Web dashboard | [Live demo](https://beancount.io/ledger/open_ledger/example/income-statement) · [`dashboard/`](./dashboard) |
-| Track money on the go | iOS & Android apps | [Mobile apps](#mobile-apps) · [`mobile/`](./mobile) |
-| Let an agent do your books | Agent skills and MCP | [Agents and MCP](#agents-and-mcp) |
-| Self-host the whole stack | Backend cluster | [Self-host](#self-host) |
+Verify both archives before transferring them. The example uses macOS
+`shasum`; use `sha256sum -c` on Linux:
 
-Your ledger stays the same plain-text file across all of them — hosted or local-first, with no hosted service required for CLI and skills workflows.
+```zsh
+revision=$(git rev-parse --short=12 HEAD)
+(cd dist/self-hosted && \
+  shasum -a 256 -c "beancount-io-transfer-$revision.sha256")
+```
 
-## Mobile apps
+#### Apple Silicon image pulls
 
-Review your finances, add transactions, scan receipts, and edit ledger files from the native Beancount client. The same open ledger stays available from the web, terminal, Python, and agent workflows.
+On Apple Silicon, Docker Compose may leave a host-native or incomplete
+multi-platform dependency tag locally even when `DOCKER_PLATFORM=linux/amd64`.
+The bundle script deliberately stops instead of packaging it. Inspect the
+dependency tags when it reports a platform or `docker save` error:
 
-<p align="center">
-  <a href="./mobile/README.md"><img width="31%" src="./mobile/docs/marketing-showcase/webp/01-home.webp" alt="Beancount Mobile home dashboard with net worth trend and recent transactions"></a>
-  <a href="./mobile/README.md"><img width="31%" src="./mobile/docs/marketing-showcase/webp/04-reports.webp" alt="Beancount Mobile reports with income, expenses, and category breakdowns"></a>
-  <a href="./mobile/README.md"><img width="31%" src="./mobile/docs/marketing-showcase/webp/09-add-transaction.webp" alt="Beancount Mobile balanced multi-posting transaction entry"></a>
-</p>
+```zsh
+for image in \
+  caddy:2-alpine \
+  docker.gitea.com/gitea:1.24 \
+  postgres:16-alpine \
+  redis:7-alpine
+do
+  docker image inspect "$image" --format '{{.RepoTags}} {{.Os}}/{{.Architecture}}'
+  docker save "$image" >/dev/null
+done
+```
 
-<p align="center">
-  <a href="https://apps.apple.com/us/app/beancount/id1527950512"><img height="48" src="https://beancount-io.b-cdn.net/app-store.png" alt="Download Beancount on the App Store"></a>
-  &nbsp;
-  <a href="https://play.google.com/store/apps/details?id=io.beancount.android"><img height="48" src="https://beancount-io.b-cdn.net/google-play.png" alt="Get Beancount on Google Play"></a>
-</p>
+If `docker pull --platform linux/amd64 <image>` does not replace the local tag,
+use Buildx and `jq` to select its AMD64 manifest explicitly, then rerun the
+bundle script:
 
-<p align="center"><sub><a href="./mobile/README.md">Explore the mobile product tour</a> or run the Expo app locally.</sub></p>
-
-## Agents and MCP
-
-Beancount.io is built for the agent era: your ledger is text an agent can read, and every write is validated and reversible.
-
-- **Coding-agent skills (local ledger)** — sixteen `beancount-*` workflows for Claude Code and Codex: scaffold a ledger, record everyday entries, payroll runs, investment trades and property events, import bank and payment-processor exports without duplicates, reconcile against statements, migrate from Mint/Monarch/QuickBooks, query finances in plain language (including profit by client or project), explain balance-sheet movements, prepare supported accrual drafts, track invoices and bills with the payments against them, and run a confirm-gated month-end close. [Install the skills](./docs/skills/installation.md) ([native Windows](./docs/skills/installation.md#windows-powershell): Windows PowerShell 5.1) → [ask your first question](./docs/skills/first-query.md) → [first-month guide](./docs/skills/first-month.md) → [migration guide](./docs/skills/migration.md); already in Beancount? [bring an existing ledger](./docs/skills/existing-ledger.md). [Unified suite distribution](./docs/skills/suite-distribution.md) and [OpenClaw/Hermes installation](./docs/skills/installation.md#openclaw-and-hermes-agent) record the current publication and host compatibility limits.
-- **MCP server** — point any MCP client at a deployment to query and edit a ledger from an agent. Also listed on the official [MCP Registry](https://registry.modelcontextprotocol.io) as `io.beancount/beancount` (OAuth sign-in).
-
-<details>
-<summary><strong>MCP connection details</strong></summary>
-
-```json
-{
-  "mcpServers": {
-    "beancount": {
-      "type": "http",
-      "url": "https://your-deployment/api-gateway/mcp",
-      "headers": { "Authorization": "Bearer [REDACTED]" }
-    }
-  }
+```zsh
+pull_amd64() {
+  local image=$1 repository=${image%:*} digest
+  digest=$(docker buildx imagetools inspect --raw "$image" |
+    jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest')
+  test -n "$digest" && test "$digest" != null
+  docker pull "$repository@$digest"
+  docker tag "$repository@$digest" "$image"
 }
+
+pull_amd64 caddy:2-alpine
+pull_amd64 docker.gitea.com/gitea:1.24
+pull_amd64 postgres:16-alpine
+pull_amd64 redis:7-alpine
 ```
 
-Tools cover BQL queries, file reads and edits, entry and receipt insertion, account renames, moving entries between files, statement parsing, bank import, and more. URI-addressed resources and accounting prompts support spending reports, month-end close, reconciliation and import categorization — e.g. `/mcp__beancount__close-month` in Claude Code. Use `tools/list`, `resources/templates/list`, and `prompts/list` against your deployment for its current catalog. File edits, directive appends, and bank imports preview with `dry_run`, every call re-authorizes, and failures return a machine code plus the next call to make. Per-host notes for Claude, Claude Code, ChatGPT, Cursor, Copilot, OpenClaw, and Hermes Agent: [MCP docs](./backend-cluster/backend-v2/docs/mcp.md); contract: [ADR 0007](./docs/adrs/ADR007-backend-v2-mcp-surface.md).
+### 2. Transfer and verify the bundle
 
-</details>
-
-## How it compares
-
-| | Beancount.io | Plain Beancount + Fava | Spreadsheet / SaaS finance app |
-| --- | --- | --- | --- |
-| Your data | Plain-text `.bean` files you own | Plain-text `.bean` files you own | Locked in a database / their cloud |
-| Reports | Web, mobile, CLI, and Python reports | Web reports (Fava) | Built-in, but not programmable |
-| On your phone | Native iOS & Android apps | Browser only | Native app, tied to the service |
-| AI agents | CLI, skills, and MCP built in | Do it yourself | No agent access |
-| Self-host | Yes — hosted, local-only, or your server | Yes, manual | No |
-| Cost / license | Free, MIT | Free, open source | Subscription |
-
-Beancount.io stands on [Beancount](https://beancount.github.io/docs/) and Fava rather than replacing them — existing ledgers keep working. Full credits: [ACKNOWLEDGEMENTS.md](./ACKNOWLEDGEMENTS.md).
-
-## Self-host
-
-Hosted, local-only, or your own infrastructure — same ledger either way.
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <strong>bex PaaS — one click</strong><br>
-      Provisions Postgres, Gitea on a persistent disk, the API, and the dashboard from the root Blueprint. First build can take 20–40 minutes; see <a href="./deploy/bex/README.md">deploy/bex</a>.
-      <br><br>
-      <a href="https://dashboard.bex.co/deploy?repo=https://github.com/bex-co/beancount-io&path=bex.yaml"><img src="./deploy/bex/deploy-to-bex.svg" height="38" alt="Deploy to bex.co"></a>
-    </td>
-    <td width="50%" valign="top">
-      <strong>Your own server or laptop</strong><br>
-      <a href="./deploy/docker"><code>deploy/docker/</code></a> — persistent single-server install with automatic TLS.<br>
-      <a href="./deploy/docker-mac"><code>deploy/docker-mac/</code></a> — the full stack locally on macOS.
-    </td>
-  </tr>
-</table>
-
-## FAQ
-
-<details>
-<summary><strong>Is my financial data private?</strong></summary>
-
-Yes. Your ledger is a plain-text file. Local CLI and skills workflows never require the hosted service; if you self-host, everything runs on your server. You choose where the file lives.
-
-</details>
-
-<details>
-<summary><strong>How is this different from plain Beancount or Fava?</strong></summary>
-
-Beancount.io builds on both (Fava ships inside the CLI). It adds native mobile apps, a one-install CLI, hosted or self-hosted collaboration, and first-class agent workflows — while your `.bean` files remain standard Beancount that Fava and other tools can still read.
-
-</details>
-
-<details>
-<summary><strong>Can I migrate from Mint, Monarch, or QuickBooks?</strong></summary>
-
-Yes — the [migration guide](./docs/skills/migration.md) converts an export and keeps importing without duplicating transfers.
-
-</details>
-
-<details>
-<summary><strong>Do I have to self-host?</strong></summary>
-
-No. Use the hosted service at [beancount.io](https://beancount.io/), run everything locally with the CLI, or self-host on one server with [`deploy/docker/`](./deploy/docker). Same ledger either way.
-
-</details>
-
-## Run from source
-
-There is no root package to install; each package owns its dependencies and checks.
-
-<details>
-<summary><strong>Web dashboard, mobile app, and CLI from this checkout</strong></summary>
-
-Web dashboard (Node.js 22, Yarn 4 via Corepack, plus a Beancount.io API endpoint):
+Copy the three artifacts to the target Linux host:
 
 ```zsh
-cd dashboard && corepack enable && yarn install --immutable
-cp .env.example .env && yarn dev   # http://localhost:5173
+revision=$(git rev-parse --short=12 HEAD)
+scp \
+  "dist/self-hosted/beancount-io-images-linux-amd64-$revision.tar.gz" \
+  "dist/self-hosted/beancount-io-deploy-$revision.tar.gz" \
+  "dist/self-hosted/beancount-io-transfer-$revision.sha256" \
+  user@server:/tmp/
 ```
 
-See the [dashboard setup guide](./dashboard/README.md). Containers instead? [`deploy/docker-mac/`](./deploy/docker-mac) runs the full stack locally on macOS; [`deploy/docker/`](./deploy/docker) is the persistent single-server install.
+Check `df -h /tmp /srv/docker` first. Some hosts mount `/tmp` as a small tmpfs;
+in that case, create a private revision-specific directory below
+`/srv/docker/.incoming-beancount-io/` and transfer the artifacts there instead.
 
-Mobile app (Node.js 20.19.4+, Yarn Classic):
+On the target host, use the revision printed in the artifact names and verify
+both archives before loading or extracting:
 
 ```zsh
-cd mobile && yarn install && yarn start
+cd /tmp
+revision=<revision>
+sha256sum -c "beancount-io-transfer-$revision.sha256"
+docker load < "beancount-io-images-linux-amd64-$revision.tar.gz"
+
+sudo install -d -m 0750 -o "$USER" -g docker /srv/docker
+tar -xzf "beancount-io-deploy-$revision.tar.gz" -C /srv/docker
+cd /srv/docker/beancount-io
 ```
 
-See the [mobile development guide](./mobile/README.md).
+The extracted directory contains `compose.yaml`, `Caddyfile`, `.env.example`,
+the exact committed source under `source/`, and a `REVISION` file. Application
+images are already loaded, so the target does not need to rebuild them.
 
-CLI from this checkout:
+### 3. Configure the target host
+
+Create the private runtime environment:
 
 ```zsh
-cd cli && uv sync --all-groups && uv run bea --help
+cp .env.example .env
+chmod 600 .env
 ```
 
-`bea upgrade` updates through whichever package manager installed it. Full command tree, automation contract, and exit codes: [CLI reference](./cli/docs/USAGE.md) and generated [command reference](./cli/docs/REFERENCE.md).
+Replace every `change-me` value. Set the real application domain and, when using
+Cloudflare Access, both `CLOUDFLARE_ACCESS_ISSUER` and
+`CLOUDFLARE_ACCESS_AUDIENCE`. Keep `SOURCE_ROOT=./source`,
+`DOCKER_PLATFORM=linux/amd64`, and `SELF_HOST=true`.
 
-</details>
+Redis recommends memory overcommit for reliable background persistence. Apply
+it once on a new host and persist it across reboots:
 
-<details>
-<summary><strong>Quality bar (run before opening a PR)</strong></summary>
+```zsh
+printf 'vm.overcommit_memory = 1\n' |
+  sudo tee /etc/sysctl.d/99-redis.conf >/dev/null
+sudo sysctl --system
+```
 
-| Package | Check |
-| --- | --- |
-| Dashboard | `cd dashboard && yarn format:check && yarn lint && yarn test && yarn build` |
-| Mobile | `cd mobile && yarn format:check && yarn lint && yarn typecheck && yarn test:unit` |
-| CLI | `cd cli && make check-all` |
-| Skills | `python3 scripts/skills/ci-check.py` |
+Persistent service state will be created below
+`/srv/docker/beancount-io/data/`. Back up that directory together with `.env`;
+neither is included in transfer bundles.
 
-Every active package has path-filtered CI, and a repository-wide secret scan gates every push and pull request. Run `scripts/lint-deadcode.sh` from the repository root to check for unused files and symbols (`scripts/fix-deadcode.sh` applies removals; review the diff and rerun full checks).
+### 4. Start the stack
 
-</details>
+Validate Compose and start strictly from the loaded images:
 
-<details>
-<summary><strong>For contributors: what's in this monorepo</strong></summary>
+```zsh
+docker compose config --quiet
+docker compose up -d --no-build --wait
+docker compose ps --all
+```
 
-| Package | What it is |
-| --- | --- |
-| [`dashboard/`](./dashboard) | Active web client: ledgers, journal, reports, Monaco editor, imports, collaboration, AI assistant (React 19 + TanStack Start + Apollo) |
-| [`mobile/`](./mobile) | Active iOS & Android client (Expo + React Native + Apollo) |
-| [`cli/`](./cli) | Active `bea` CLI and Python tooling ([releases](https://github.com/bex-co/beancount-io/releases?q=bea)) |
-| [`skills/`](./skills) | One Beancount.io ledger suite with sixteen `beancount-*` workflows; install the versioned `beancount-io` plugin or the complete source collection. |
-| [`backend-cluster/`](./backend-cluster) | Active backend: GraphQL/REST gateway, ledger service, and IDL |
+Expected one-shot services:
 
-The dashboard and mobile app are clients for the Beancount.io API served by `backend-cluster/` — hosted, or self-run. Skills have two audiences: Beancount users get [`skills/`](./skills/README.md); repository contributors get [`.agents/skills/`](./.agents/skills) (see [`.agents/AGENTS.md`](./.agents/AGENTS.md)). The root `.claude/skills` links to `.agents/skills` so Claude Code and Codex share the internal workflows.
+- `gitea-init` exits successfully after ensuring the administrator exists.
+- `backend-migrate` exits successfully after applying database migrations.
 
-</details>
+Expected long-lived services:
 
-## Contributing
+- `caddy`
+- `dashboard`
+- `backend-v2`
+- `ledger`
+- `gitea`
+- `postgres-gitea`
+- `postgres-backend`
+- `redis`
 
-Contributions are welcome across product UI, accounting workflows, accessibility, translations, tests, Python tooling, and agent skills. Start with the [contributing guide](./CONTRIBUTING.md), browse [open issues](https://github.com/bex-co/beancount-io/issues) and the public [adoption roadmap](./.pm/README.md), and keep changes focused on one package when possible.
+### 5. Connect Cloudflare
 
-Read our [code of conduct](./CODE_OF_CONDUCT.md) before participating. Report vulnerabilities privately through the [security policy](./SECURITY.md).
+Point the application hostname in the host-managed Cloudflare Tunnel at
+`http://127.0.0.1:8004`. Protect the complete hostname with one Cloudflare
+Access application, including `/api-gateway/*` and smart Git HTTPS paths. Do
+not add a public origin listener, origin-IP DNS record, API bypass, or service
+token exception.
 
-If Beancount.io is the kind of open, programmable finance software you want to see more of, [star the repository](https://github.com/bex-co/beancount-io) and help more developers find it.
+When native OAuth or the Git credential helper is required, enable Managed
+OAuth and dynamic client registration for the Access application. The detailed
+Access policy and callback requirements are in
+[`deploy/docker/README.md`](deploy/docker/README.md#cloudflare-tunnel-and-access).
 
-## Community
+### 6. Verify the complete request path
 
-- Website: [beancount.io](https://beancount.io/)
-- Chat: [Telegram](https://t.me/beancount)
-- Mobile: [App Store](https://apps.apple.com/us/app/beancount/id1527950512) · [Google Play](https://play.google.com/store/apps/details?id=io.beancount.android)
-- Issues: [github.com/bex-co/beancount-io/issues](https://github.com/bex-co/beancount-io/issues)
+```zsh
+docker compose ps --all
+docker compose logs --since 10m ledger backend-v2 dashboard
 
-## Acknowledgements
+app_domain=$(sed -n 's/^APP_DOMAIN=//p' .env)
+curl --fail --show-error --silent \
+  -H "Host: $app_domain" \
+  http://127.0.0.1:8004/api-gateway/v1/health
 
-Beancount.io stands on [Beancount](https://github.com/beancount/beancount) and [Fava](https://github.com/beancount/fava) — the vendored `fava` package inside `cli/src/fava` ships as bundled subprocess resources in the single `beancount-io` distribution, and the rest of the plain-text accounting stack ([beanquery](https://github.com/beancount/beanquery), [beangulp](https://github.com/beancount/beangulp), [rustledger](https://github.com/rustledger/rustledger)) is used as unmodified upstream dependencies. Full credits and license compliance: [ACKNOWLEDGEMENTS.md](./ACKNOWLEDGEMENTS.md).
+docker compose exec -T backend-v2 \
+  wget -qO- http://localhost:4104/healthz
+```
 
-## License
+The first request exercises Caddy and backend-v2 and returns `"OK"`. The second
+is backend-v2's private deep-readiness check; it must report `healthy` for
+PostgreSQL, Redis, Gitea, and the ledger service. A direct ledger health request
+is useful only when this aggregate check reports the ledger as unhealthy.
 
-[MIT](./LICENSE) © Beancount.io applies by default. The customer skill suite under [`skills/`](./skills/) uses [MIT No Attribution (MIT-0)](./skills/LICENSE), including its instructions, references, and fixtures. Upstream projects remain under their own licenses.
+Before authenticating, requesting `https://<APP_DOMAIN>` from outside the host
+must produce a Cloudflare Access login redirect rather than the dashboard. Sign
+in through Access, open the dashboard, create or open a ledger, and perform one
+ledger read. That final action verifies the complete Cloudflare → Caddy →
+backend-v2 → Gitea/Python-ledger path and provisions the corresponding local
+and Gitea account on first use.
 
+For a non-interactive check that behaves like a browser:
+
+```zsh
+curl --silent --show-error --output /dev/null \
+  --write-out '%{http_code}\n' \
+  --user-agent 'Mozilla/5.0' \
+  --header 'Accept: text/html' \
+  "https://$app_domain/"
+```
+
+Expect `302`. A generic API client may receive `401` instead. Protected ledger
+operations require a genuine Access assertion; the Gitea administrator and
+`x-admin-token` are not authentication bypasses for end-to-end smoke tests.
+
+## Upgrade and rollback
+
+Before an upgrade, retain revision-specific image, descriptor, and source
+rollback points. Include dependency images because these example tags follow
+patch releases and may resolve to new image IDs between bundles:
+
+```zsh
+rollback=$(cut -c1-12 REVISION)
+docker tag beancount-io/backend-v2:selfhosted "beancount-io/backend-v2:rollback-$rollback"
+docker tag beancount-io/dashboard:selfhosted "beancount-io/dashboard:rollback-$rollback"
+docker tag beancount-io/ledger:selfhosted "beancount-io/ledger:rollback-$rollback"
+docker tag caddy:2-alpine "caddy:rollback-$rollback"
+docker tag docker.gitea.com/gitea:1.24 "docker.gitea.com/gitea:rollback-$rollback"
+docker tag postgres:16-alpine "postgres:rollback-$rollback"
+docker tag redis:7-alpine "redis:rollback-$rollback"
+cp compose.yaml "compose.yaml.before-$rollback"
+cp Caddyfile "Caddyfile.before-$rollback"
+cp REVISION "REVISION.before-$rollback"
+cp -a source "source.rollback-$rollback"
+```
+
+Load and extract the new bundle, move its `source/` into place, review
+`.env.example` changes, and run:
+
+```zsh
+docker compose config --quiet
+docker compose up -d --no-build --wait
+```
+
+To roll back, restore the revision-specific descriptors and source directory,
+retag the required rollback images to their normal Compose tags, and recreate
+the affected services. Bind-mounted data is not removed by image rollback or
+`docker compose down`.
+
+## Detailed operations
+
+See [`deploy/docker/README.md`](deploy/docker/README.md) for first boot,
+Cloudflare configuration, Python plugin dependencies, backups, routine
+operations, optional Git-over-SSH, and service-specific rollback commands.
