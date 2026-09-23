@@ -31,14 +31,6 @@ networks:
     driver: bridge
     internal: true
 
-volumes:
-  caddy_data:
-  caddy_config:
-  gitea_data:
-  postgres_gitea_data:
-  postgres_backend_data:
-  redis_data:
-
 services:
   caddy:
     image: ${CADDY_IMAGE:-caddy:2-alpine}
@@ -58,8 +50,8 @@ services:
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
     depends_on:
       dashboard:
         condition: service_healthy
@@ -263,7 +255,7 @@ services:
       - "3000"
       - "22"
     volumes:
-      - gitea_data:/data
+      - ./data/gitea:/data
     depends_on:
       postgres-gitea:
         condition: service_healthy
@@ -313,7 +305,7 @@ services:
     networks:
       - private
     volumes:
-      - gitea_data:/data
+      - ./data/gitea:/data
     depends_on:
       gitea:
         condition: service_healthy
@@ -343,7 +335,7 @@ services:
     networks:
       - private
     volumes:
-      - postgres_gitea_data:/var/lib/postgresql/data
+      - ./data/postgres-gitea:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: ${GITEA_DB_USER:-gitea}
       POSTGRES_PASSWORD: ${GITEA_DB_PASSWORD:?Set GITEA_DB_PASSWORD in .env}
@@ -363,7 +355,7 @@ services:
     networks:
       - private
     volumes:
-      - postgres_backend_data:/var/lib/postgresql/data
+      - ./data/postgres-backend:/var/lib/postgresql/data
     environment:
       POSTGRES_USER: ${BACKEND_DB_USER:-beancount}
       POSTGRES_PASSWORD: ${BACKEND_DB_PASSWORD:?Set BACKEND_DB_PASSWORD in .env}
@@ -383,7 +375,7 @@ services:
     networks:
       - private
     volumes:
-      - redis_data:/data
+      - ./data/redis:/data
     command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]

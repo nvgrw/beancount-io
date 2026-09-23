@@ -6,11 +6,11 @@ This target is intended for a persistent Linux server or VM. For local macOS
 development, use [`../docker-mac/`](../docker-mac/) instead.
 
 The topology follows Docker's production guidance: application code stays in
-the images, state uses named volumes, services restart automatically, readiness
-is health-gated, and container logs are bounded. In direct mode, Caddy is the
-only HTTP service published on the host and manages TLS. The Cloudflare Tunnel
-overlay publishes no host ports and connects Caddy directly to cloudflared on a
-shared Docker network.
+the images, state lives under `./data`, services restart automatically,
+readiness is health-gated, and container logs are bounded. In direct mode,
+Caddy is the only HTTP service published on the host and manages TLS. The
+Cloudflare Tunnel overlay publishes no host ports and connects Caddy directly
+to cloudflared on a shared Docker network.
 
 ## Prerequisites
 
@@ -378,20 +378,34 @@ edge network but expose no host ports. Ledger, both PostgreSQL services, and
 Redis are reachable only on an internal Compose network. Gitea's SSH listener
 is also internal unless you explicitly enable the policy-enforcing SSH overlay.
 
-Persistent state lives in Docker named volumes:
+Persistent state lives beside the Compose file under `./data`:
 
-- `caddy_data` and `caddy_config` — certificates and Caddy state.
-- `gitea_data` — Git repositories, attachments, and Gitea configuration.
-- `postgres_gitea_data` and `postgres_backend_data` — relational data.
-- `redis_data` — append-only Redis state, including authentication data.
+- `data/caddy/data` and `data/caddy/config` — certificates and Caddy state.
+- `data/gitea` — Git repositories, attachments, and Gitea configuration.
+- `data/postgres-gitea` and `data/postgres-backend` — relational data.
+- `data/redis` — append-only Redis state, including authentication data.
 
-`docker compose down` preserves these volumes. `docker compose down -v`
-deletes them and is therefore a full, destructive reset.
+`docker compose down` and `docker compose down -v` both preserve bind-mounted
+data. A destructive reset requires explicitly deleting `./data`.
 
-Back up all six volumes together from a stopped stack, or use application-aware
-online backups (`gitea dump`, `pg_dump`, and Redis persistence) and test the
-restore procedure. Keep `.env` in the same protected backup set: its Gitea
-encryption keys are required to read some persisted secrets.
+For a simple consistent backup, stop the stack and archive the deployment
+configuration and data tree together. `sudo` is required because PostgreSQL
+keeps its directories private to its container UID.
+
+```zsh
+cd /srv/docker/beancount-io
+docker compose down
+timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+sudo tar --acls --xattrs -czf "../beancount-io-$timestamp.tar.gz" \
+  compose.yaml Caddyfile .env data
+docker compose up -d --no-build --wait
+```
+
+Restore only into an empty deployment while the stack is down, then start and
+verify every health check. For online backups, use application-aware tools
+(`gitea dump`, `pg_dump`, and Redis persistence) and test the restore procedure.
+Always include `.env`: its Gitea encryption keys are required to read persisted
+secrets.
 
 ## Routine operations
 
