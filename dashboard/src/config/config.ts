@@ -1,5 +1,7 @@
 interface Config {
   apiUrl: string;
+  /** Self-hosted builds disable billing and expose unlimited quotas. */
+  selfHostedUnlimited: boolean;
   /**
    * Google Analytics 4 Measurement ID for the current environment's data stream.
    * Set per-environment (separate dev/staging vs. production streams) via
@@ -21,6 +23,8 @@ interface Config {
 
 // Add runtime validation (only in development mode)
 const apiUrl = import.meta.env.VITE_API_URL;
+const selfHostedUnlimited =
+  import.meta.env.VITE_SELF_HOSTED_UNLIMITED === "true";
 const gaMeasurementId = import.meta.env.VITE_GA_MEASUREMENT_ID || undefined;
 // const gaMeasurementId = "G-Y0WGKFHE3E";
 const gaDebugMode = !import.meta.env.PROD;
@@ -31,6 +35,7 @@ if (import.meta.env.MODE === "development" && !apiUrl) {
 
 export const config: Config = {
   apiUrl,
+  selfHostedUnlimited,
   gaMeasurementId,
   analyticsEnabled: Boolean(gaMeasurementId),
   gaDebugMode,

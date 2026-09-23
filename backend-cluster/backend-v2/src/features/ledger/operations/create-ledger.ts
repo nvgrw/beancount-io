@@ -83,7 +83,10 @@ export async function createLedger({
   const userTier = await getUserTier({ stripe, models, postgresDb, userId });
   const tierLimits = getTierLimits(userTier);
 
-  if (userLedgers.length >= tierLimits.maxLedgers) {
+  if (
+    tierLimits.maxLedgers >= 0 &&
+    userLedgers.length >= tierLimits.maxLedgers
+  ) {
     throw new ResourceLimitReachedError(
       "Ledger",
       tierLimits.maxLedgers,

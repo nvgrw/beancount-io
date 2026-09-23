@@ -45,6 +45,7 @@ import { AiCfoUsageResolver } from "@/features/feature-usage/api/ai-cfo-usage-re
 import { ApiKeyResolver } from "@/features/apikeys/api/api-key-resolver";
 import { TokenIntrospectionResolver } from "@/features/apikeys/api/token-introspection-resolver";
 import { ReportStatus } from "@/features/auth/utils/report-status";
+import { config } from "@/config/config";
 
 // ReportStatus is exposed by UserProfileResponse.emailReportStatus (account
 // surface); register it with TypeGraphQL before buildSchema.
@@ -76,7 +77,7 @@ export const resolvers: Resolvers = [
   AccountResolver,
   AuthResolver,
   CliAuthResolver,
-  SubscriptionResolver,
+  ...(config.selfHostedUnlimited ? [] : [SubscriptionResolver]),
   LedgerPublicKeyQueryResolver,
   LedgerPublicKeyMutationResolver,
   LedgerCollaboratorsQueryResolver,

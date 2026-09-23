@@ -35,6 +35,8 @@ export function LimitIndicator({
   const { t } = useTranslations();
   const { isReactNative } = useReactNativeContext();
 
+  if (max === -1) return null;
+
   // Calculate usage percentage
   const percentage = (used / max) * 100;
 

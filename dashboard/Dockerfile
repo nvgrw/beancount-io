@@ -25,6 +25,7 @@ COPY . .
 ARG VITE_API_URL
 ARG VITE_SSR_API_URL
 ARG VITE_GA_MEASUREMENT_ID
+ARG VITE_SELF_HOSTED_UNLIMITED
 RUN set -eu; \
     : > .env.production.local; \
     if [ -n "${VITE_API_URL:-}" ]; then \
@@ -32,7 +33,9 @@ RUN set -eu; \
     if [ -n "${VITE_SSR_API_URL:-}" ]; then \
       echo "VITE_SSR_API_URL=$VITE_SSR_API_URL" >> .env.production.local; fi; \
     if [ -n "${VITE_GA_MEASUREMENT_ID:-}" ]; then \
-      echo "VITE_GA_MEASUREMENT_ID=$VITE_GA_MEASUREMENT_ID" >> .env.production.local; fi
+      echo "VITE_GA_MEASUREMENT_ID=$VITE_GA_MEASUREMENT_ID" >> .env.production.local; fi; \
+    if [ -n "${VITE_SELF_HOSTED_UNLIMITED:-}" ]; then \
+      echo "VITE_SELF_HOSTED_UNLIMITED=$VITE_SELF_HOSTED_UNLIMITED" >> .env.production.local; fi
 
 # Build the application (produces .output/)
 RUN yarn build

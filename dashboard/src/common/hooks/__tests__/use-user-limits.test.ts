@@ -306,4 +306,35 @@ describe("useUserLimits", () => {
       });
     });
   });
+
+  describe("unlimited tier user", () => {
+    it("should never report the ledger limit as reached", () => {
+      mockUseQuery.mockReturnValue({
+        data: {
+          userProfile: {
+            id: "123",
+            email: "self-hosted@example.com",
+            username: "selfhosted",
+            tier: "ENTERPRISE",
+            limits: {
+              ledgersUsed: 100,
+              ledgersMax: -1,
+              collaboratorsPerLedgerMax: -1,
+              maxDirectives: -1,
+            },
+            avatarUrl: null,
+            locale: null,
+          },
+        },
+        loading: false,
+        error: undefined,
+        refetch: vi.fn(),
+      });
+
+      const { result } = renderHook(() => useUserLimits());
+
+      expect(result.current.isEnterprise).toBe(true);
+      expect(result.current.isAtLedgerLimit).toBe(false);
+    });
+  });
 });

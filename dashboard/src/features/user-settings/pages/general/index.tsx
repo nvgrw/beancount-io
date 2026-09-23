@@ -20,6 +20,7 @@ import { useTranslations } from "@/common/hooks/use-translations";
 import { getErrorMessageKey } from "@/common/lib/errors/error-message";
 import { useReactNativeContext } from "@/common/providers/react-native-bridge-provider/react-native-bridge-context";
 import { PageSEO } from "@/common/components/seo/page-seo";
+import { config } from "@/config/config";
 
 /**
  * Loading state component
@@ -82,7 +83,7 @@ function GeneralSettingsSkeleton() {
       </Card>
 
       {/* Subscription Skeleton - Hidden in React Native */}
-      {!isReactNative && (
+      {!isReactNative && !config.selfHostedUnlimited && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -202,7 +203,9 @@ export default function GeneralSettingsPage() {
         noIndex
       />
       <div className="space-y-4">
-        {!isReactNative && <SubscriptionSection />}
+        {!isReactNative && !config.selfHostedUnlimited && (
+          <SubscriptionSection />
+        )}
         <UserProfileSection userData={data} />
         <AppearanceSection />
         <SessionSection />

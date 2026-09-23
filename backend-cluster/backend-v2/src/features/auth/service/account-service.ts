@@ -22,6 +22,7 @@ import {
   type IAuthorizationService,
   userResource,
 } from "@/server/api/authorization";
+import { config } from "@/config/config";
 
 const accountLogger = logger.child({ module: "account-service" });
 
@@ -111,7 +112,9 @@ export class AccountService implements IAccountService {
       }),
       // A paidCustomer row is created on checkout completion and persists after
       // cancellation, so its existence marks that the user has ever subscribed.
-      this.models.paidCustomer.findByUserId(this.db, userId),
+      config.selfHostedUnlimited
+        ? Promise.resolve([])
+        : this.models.paidCustomer.findByUserId(this.db, userId),
     ]);
     const tierLimits = getTierLimits(tier);
     const hasEverSubscribed = paidCustomers.length > 0;
@@ -293,10 +296,9 @@ export class AccountService implements IAccountService {
       throw new NotFoundError("User", userId);
     }
 
-    const paidCustomers = await this.models.paidCustomer.findByUserId(
-      this.db,
-      userId,
-    );
+    const paidCustomers = config.selfHostedUnlimited
+      ? []
+      : await this.models.paidCustomer.findByUserId(this.db, userId);
 
     if (paidCustomers.length > 0) {
       const subscriptions = await this.stripe.listSubscriptions(userId);
