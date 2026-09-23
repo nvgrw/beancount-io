@@ -12,6 +12,12 @@ import {
 } from "@/features/apikeys/service/api-key-service";
 import { logger } from "@/shared/logger";
 import { ForbiddenError } from "@/shared/errors";
+import {
+  CLOUDFLARE_ACCESS_ASSERTION_HEADER,
+  cloudflareAccessUserId,
+  verifyCloudflareAccessAssertion,
+  type CloudflareAccessClaims,
+} from "@/features/auth/utils/cloudflare-access";
 
 const identityLogger = logger.child({ module: "identity" });
 
@@ -259,6 +265,7 @@ function effectiveCapabilities(
 /** The minimal Koa-ish shape `resolveIdentity` needs: just headers. */
 export interface RequestLike {
   headers: Record<string, string | string[] | undefined>;
+  state?: { cloudflareAccessClaims?: CloudflareAccessClaims };
 }
 
 export interface ResolveIdentityOptions {
@@ -354,6 +361,10 @@ export async function resolveIdentity(
   config: AppConfig,
   options: ResolveIdentityOptions = {},
 ): Promise<Identity | undefined> {
+  if (config.cloudflareAccess) {
+    return resolveCloudflareAccessIdentity(ctx, database, config);
+  }
+
   const token = getTokenFromCtx(ctx as RouterContext);
   if (!token) {
     return undefined;
@@ -374,6 +385,53 @@ export async function resolveIdentity(
     )) ??
     (await resolveSessionIdentity(token, database))
   );
+}
+
+export async function resolveCloudflareAccessIdentity(
+  ctx: RequestLike,
+  database: Pick<DatabaseLayer, "db"> & {
+    models: Pick<DatabaseLayer["models"], "user">;
+  },
+  config: Pick<AppConfig, "cloudflareAccess">,
+  verify: typeof verifyCloudflareAccessAssertion =
+    verifyCloudflareAccessAssertion,
+): Promise<Identity | undefined> {
+  const accessConfig = config.cloudflareAccess;
+  if (!accessConfig) return undefined;
+
+  let claims = ctx.state?.cloudflareAccessClaims;
+  if (!claims) {
+    const header = ctx.headers[CLOUDFLARE_ACCESS_ASSERTION_HEADER];
+    const assertion = Array.isArray(header) ? header[0] : header;
+    if (!assertion) return undefined;
+    claims = (await verify(assertion, accessConfig)) ?? undefined;
+  }
+  if (!claims) return undefined;
+
+  const userId = cloudflareAccessUserId(claims.issuer, claims.subject);
+  const user = await database.models.user.getById(database.db, userId);
+  if (!user || user.isBlocked) return undefined;
+
+  return accessIdentity(userId, claims);
+}
+
+function accessIdentity(
+  userId: string,
+  claims: CloudflareAccessClaims,
+): Identity {
+  return {
+    userId,
+    principal: { type: "user", id: userId },
+    method: "session",
+    scopes: EMPTY_SCOPES,
+    capabilities: ALL_OPERATION_CAPABILITIES,
+    assurance: {
+      type: "interactive",
+      authenticatedAt: claims.issuedAt,
+    },
+    issuedAt: claims.issuedAt,
+    expiresAt: claims.expiresAt,
+  };
 }
 
 /** At most one `lastUsedAt` write per key per window, per process. */

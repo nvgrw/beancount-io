@@ -20,7 +20,8 @@ export interface User {
 
 // Input type for creating a new user
 export interface CreateUserInput {
-  password: string;
+  id?: string;
+  password?: string;
   email: string;
   ip: string;
   ledger_username: string;

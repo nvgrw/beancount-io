@@ -117,7 +117,9 @@ export async function createContext(
     // The raw credential as presented (bearer OR cookie). `logout` revokes by
     // exact token and browser sessions arrive by cookie, so this must keep the
     // cookie fallback even though authentication no longer goes through it.
-    token: getTokenFromCtx(ctx as Parameters<typeof getTokenFromCtx>[0]),
+    token: config.cloudflareAccess
+      ? undefined
+      : getTokenFromCtx(ctx as Parameters<typeof getTokenFromCtx>[0]),
     reqHeaders,
     platform,
     config,

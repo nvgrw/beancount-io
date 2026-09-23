@@ -13,6 +13,7 @@ import { restMetricsMiddleware } from "@/metrics/koa-middleware";
 import { logger } from "@/shared/logger";
 import { asyncContextMiddleware } from "./middleware/async-context-middleware";
 import { createOrphanedHostCookieMiddleware } from "./middleware/orphaned-host-cookie-middleware";
+import { createCloudflareAccessProvisioningMiddleware } from "./middleware/cloudflare-access-provisioning-middleware";
 
 import { buildAppLayers } from "@/foundation";
 import { type AppLayers } from "@/foundation/composition";
@@ -124,6 +125,7 @@ export async function startServer(): Promise<void> {
   app.use(restMetricsMiddleware());
 
   const layers: AppLayers = await buildAppLayers(config);
+  app.use(createCloudflareAccessProvisioningMiddleware(layers, config));
 
   // TEMPORARY (safe to delete after 2026-10-21) — retire the __Host-authSess
   // sessions stranded by the c8fee979d7 revert. See the middleware's docblock.
