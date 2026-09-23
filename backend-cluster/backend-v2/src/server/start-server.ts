@@ -15,6 +15,7 @@ import { asyncContextMiddleware } from "./middleware/async-context-middleware";
 import { bodyParserMiddleware } from "./middleware/body-parser-middleware";
 import { corsMiddleware } from "./middleware/cors-middleware";
 import { createOrphanedHostCookieMiddleware } from "./middleware/orphaned-host-cookie-middleware";
+import { createCloudflareAccessProvisioningMiddleware } from "./middleware/cloudflare-access-provisioning-middleware";
 
 import { buildAppLayers } from "@/foundation";
 import { type AppLayers } from "@/foundation/composition";
@@ -85,6 +86,7 @@ export async function startServer(): Promise<void> {
   });
 
   const layers: AppLayers = await buildAppLayers(config);
+  app.use(createCloudflareAccessProvisioningMiddleware(layers, config));
 
   if (config.selfHost) {
     logger.warn(

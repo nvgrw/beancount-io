@@ -12,9 +12,17 @@ import { IsOptional, Matches, MaxLength } from "class-validator";
 import { IContext } from "@/server/graphql/context";
 import type { IAuthService } from "@/features/auth/service/auth-service";
 import type { IAuthSessionWorkflow } from "@/features/auth/workflow/auth-session-workflow";
-import { UnauthenticatedError } from "@/shared/errors";
+import { ForbiddenError, UnauthenticatedError } from "@/shared/errors";
 import { setAuthCookie, clearAuthCookie } from "@/shared/cookie-utils";
 import { Context } from "koa";
+
+function assertLocalAuthenticationEnabled(ctx: IContext): void {
+  if (ctx.config.cloudflareAccess) {
+    throw new ForbiddenError(
+      "Local authentication is disabled; authenticate through Cloudflare Access",
+    );
+  }
+}
 
 @ObjectType()
 class TokenAuthResponse {
@@ -242,6 +250,7 @@ export class AuthResolver {
     @Ctx() ctx: IContext,
     @Args() args: SignInInput,
   ): Promise<TokenAuthResponse> {
+    assertLocalAuthenticationEnabled(ctx);
     const result = await this.authSessionWorkflow.loginUser({
       email: args.email.toLowerCase().trim(),
       password: args.password,
@@ -303,6 +312,7 @@ export class AuthResolver {
       "Refresh authentication token - issues a new token and revokes the current one",
   })
   public async refreshToken(@Ctx() ctx: IContext): Promise<TokenAuthResponse> {
+    assertLocalAuthenticationEnabled(ctx);
     if (!ctx.token) {
       throw new UnauthenticatedError("No token provided");
     }
@@ -325,6 +335,7 @@ export class AuthResolver {
     @Ctx() ctx: IContext,
     @Args() args: SignInWithOneTimeTokenInput,
   ): Promise<TokenAuthResponse> {
+    assertLocalAuthenticationEnabled(ctx);
     const result = await this.authSessionWorkflow.signInWithMagicLinkToken({
       token: args.token,
     });
@@ -342,6 +353,7 @@ export class AuthResolver {
   public async createOneTimeToken(
     @Ctx() ctx: IContext,
   ): Promise<CreateOneTimeTokenResponse> {
+    assertLocalAuthenticationEnabled(ctx);
     const result = await this.authService.createOneTimeToken(
       ctx.getCurrentUserId(),
     );
@@ -356,6 +368,7 @@ export class AuthResolver {
     @Ctx() ctx: IContext,
     @Args() args: SendForgotPasswordLinkInput,
   ): Promise<SendForgotPasswordLinkResponse> {
+    assertLocalAuthenticationEnabled(ctx);
     await this.authService.sendForgotPasswordLink(
       args.email.toLowerCase().trim(),
       ctx.clientIp,
@@ -369,9 +382,10 @@ export class AuthResolver {
       "Reset user password using a token from the password reset email",
   })
   public async resetPassword(
-    @Ctx() _ctx: IContext,
+    @Ctx() ctx: IContext,
     @Args() args: ResetPasswordInput,
   ): Promise<ResetPasswordResponse> {
+    assertLocalAuthenticationEnabled(ctx);
     await this.authService.resetPassword(args.token, args.newPassword);
     return { success: true };
   }
@@ -381,9 +395,10 @@ export class AuthResolver {
     description: "Validate whether an email token is valid and not expired",
   })
   public async validateEmailToken(
-    @Ctx() _ctx: IContext,
+    @Ctx() ctx: IContext,
     @Args() args: ValidateEmailTokenInput,
   ): Promise<ValidateEmailTokenResponse> {
+    assertLocalAuthenticationEnabled(ctx);
     const isValid = await this.authService.validateEmailToken(args.token);
     return { isValid };
   }
@@ -412,6 +427,7 @@ export class AuthResolver {
     @Ctx() ctx: IContext,
     @Args() args: SignUpInput,
   ): Promise<SignUpResponse> {
+    assertLocalAuthenticationEnabled(ctx);
     // inviteSrc and inviteBy are accepted for backward compatibility but no longer used
     const sessionId = await this.authService.createSignUpSession({
       email: args.email.toLowerCase().trim(),
@@ -459,6 +475,7 @@ export class AuthResolver {
     @Ctx() ctx: IContext,
     @Args() args: VerifySignUpOtpInput,
   ): Promise<TokenAuthResponse> {
+    assertLocalAuthenticationEnabled(ctx);
     const result = await this.authSessionWorkflow.verifySignUpOtp({
       sessionId: args.sessionId,
       otp: args.otp,
