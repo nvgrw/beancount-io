@@ -17,6 +17,10 @@ import fetch from "node-fetch";
 import { logger } from "@/shared/logger";
 import { createRateLimiter, checkRateLimit } from "@/shared/rate-limiter";
 import { CATEGORY_HTTP_STATUS, RateLimitedError } from "@/shared/errors";
+import {
+  cloudflareAccessUserId,
+  type CloudflareAccessClaims,
+} from "@/features/auth/utils/cloudflare-access";
 
 const proxyLogger = logger.child({ module: "git-proxy" });
 
@@ -487,18 +491,29 @@ export function setGitProxyHandler(
       return;
     }
 
+    const accessClaims = (
+      ctx.state as
+        | { cloudflareAccessClaims?: CloudflareAccessClaims }
+        | undefined
+    )?.cloudflareAccessClaims;
     const authHeader = ctx.get("Authorization");
     const credentials = parseBasicAuth(authHeader);
 
-    // Git requires authentication - send WWW-Authenticate header if missing
-    if (!credentials) {
+    if (config.cloudflareAccess && !accessClaims) {
+      ctx.status = 401;
+      ctx.body = "Cloudflare Access authentication required";
+      return;
+    }
+
+    // Non-Access deployments retain the existing Basic authentication flow.
+    if (!credentials && !accessClaims) {
       ctx.status = 401;
       ctx.set("WWW-Authenticate", 'Basic realm="Git"');
       ctx.body = "Authentication required";
       return;
     }
 
-    const [username, password] = credentials;
+    const [username, password] = credentials ?? ["", ""];
 
     try {
       // Forward headers, excluding host and authorization
@@ -509,13 +524,40 @@ export function setGitProxyHandler(
           lowerKey !== "host" &&
           lowerKey !== "authorization" &&
           lowerKey !== "connection" &&
+          !lowerKey.startsWith("cf-access-") &&
           typeof value === "string"
         ) {
           forwardHeaders[key] = value;
         }
       }
 
-      if (username.includes("@")) {
+      if (accessClaims) {
+        const userId = cloudflareAccessUserId(
+          accessClaims.issuer,
+          accessClaims.subject,
+        );
+        const user = await layers.database.models.user.getById(
+          layers.database.db,
+          userId,
+        );
+        if (!user || user.isBlocked) {
+          ctx.status = 401;
+          ctx.body = "Cloudflare Access identity is not provisioned";
+          return;
+        }
+
+        const ledgerAuth = Buffer.from(
+          `${user.ledger_username}:${user.ledger_password}`,
+        ).toString("base64");
+        forwardHeaders["Authorization"] = `Basic ${ledgerAuth}`;
+
+        proxyLogger.debug("Proxying git request (Cloudflare Access)", {
+          path,
+          method: ctx.method,
+          userId,
+          ledgerUsername: user.ledger_username,
+        });
+      } else if (username.includes("@")) {
         // App email + password: look up user and translate to Gitea credentials
         const user = await layers.database.models.user.getByMail(
           layers.database.db,
