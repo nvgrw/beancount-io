@@ -4,10 +4,12 @@ import { useAllTierQuotas } from "../use-all-tier-quotas";
 import { GetAllTierQuotasDocument } from "@/graphql/definitions";
 
 const mockUseQuery = vi.fn();
+const mockConfig = vi.hoisted(() => ({ selfHostedUnlimited: false }));
 
 vi.mock("@apollo/client/react", () => ({
   useQuery: (...args: any[]) => mockUseQuery(...args),
 }));
+vi.mock("@/config/config", () => ({ config: mockConfig }));
 
 const MOCK_QUOTAS = [
   {
@@ -55,6 +57,7 @@ const MOCK_QUOTAS = [
 describe("useAllTierQuotas", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockConfig.selfHostedUnlimited = false;
   });
 
   it("should return null quotas when no data", () => {
@@ -159,6 +162,26 @@ describe("useAllTierQuotas", () => {
 
     expect(mockUseQuery).toHaveBeenCalledWith(GetAllTierQuotasDocument, {
       fetchPolicy: "cache-first",
+      skip: false,
     });
+  });
+
+  it("skips quota requests in self-hosted unlimited mode", () => {
+    mockConfig.selfHostedUnlimited = true;
+    mockUseQuery.mockReturnValue({
+      data: undefined,
+      loading: true,
+      error: new Error("query should be skipped"),
+    });
+
+    const { result } = renderHook(() => useAllTierQuotas());
+
+    expect(mockUseQuery).toHaveBeenCalledWith(GetAllTierQuotasDocument, {
+      fetchPolicy: "cache-first",
+      skip: true,
+    });
+    expect(result.current.quotas).toBeNull();
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.error).toBeUndefined();
   });
 });

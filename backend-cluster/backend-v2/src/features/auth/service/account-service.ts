@@ -25,6 +25,7 @@ import {
   type IAuthorizationService,
   userResource,
 } from "@/server/api/authorization";
+import { config } from "@/config/config";
 
 const accountLogger = logger.child({ module: "account-service" });
 
@@ -155,7 +156,9 @@ export class AccountService implements IAccountService {
       }),
       // A paidCustomer row is created on checkout completion and persists after
       // cancellation, so its existence marks that the user has ever subscribed.
-      this.models.paidCustomer.findByUserId(this.db, userId),
+      config.selfHost
+        ? Promise.resolve([])
+        : this.models.paidCustomer.findByUserId(this.db, userId),
       this.favaClientFactory.getApiContext(userId).then(({ favaApiClient }) =>
         countOwnedLedgers(favaApiClient, user.ledger_username).catch(
           // A profile still loads when the ledger service cannot list.
@@ -377,10 +380,9 @@ export class AccountService implements IAccountService {
       }
     }
 
-    const paidCustomers = await this.models.paidCustomer.findByUserId(
-      this.db,
-      userId,
-    );
+    const paidCustomers = config.selfHost
+      ? []
+      : await this.models.paidCustomer.findByUserId(this.db, userId);
 
     if (paidCustomers.length > 0) {
       const subscriptions = await this.stripe.listSubscriptions(userId);
