@@ -7,16 +7,22 @@ development, use [`../docker-mac/`](../docker-mac/) instead.
 
 The topology follows Docker's production guidance: application code stays in
 the images, state uses named volumes, services restart automatically, readiness
-is health-gated, and container logs are bounded. Caddy is the only HTTP service
-published on the host and obtains and renews TLS certificates automatically.
+is health-gated, and container logs are bounded. In direct mode, Caddy is the
+only HTTP service published on the host and manages TLS. The Cloudflare Tunnel
+overlay publishes no host ports and connects Caddy directly to cloudflared on a
+shared Docker network.
 
 ## Prerequisites
 
-- A current Docker Engine with the Compose v2 plugin.
+- A current Docker Engine with Docker Compose v2.24.4 or newer. The tunnel
+  overlay uses Compose's `!reset` tag to remove Caddy's host ports.
 - A checkout of this repository on the deployment host.
-- Three public DNS names pointing at the host, for example
-  `books.example.com`, `api.books.example.com`, and `git.books.example.com`.
-- Inbound TCP 80 and 443. UDP 443 enables HTTP/3 but is optional.
+- Two public DNS names, for example `books.example.com` and
+  `git.books.example.com`. The application hostname serves both the dashboard
+  and `/api-gateway`; the Git hostname serves Gitea and clone URLs. Direct mode
+  points them at the host; Cloudflare Tunnel mode assigns them to the tunnel.
+- Direct mode only: inbound TCP 80 and 443. UDP 443 enables HTTP/3 but is
+  optional. Tunnel mode requires no inbound host ports.
 - Enough resources to build three Node images and run eight long-lived
   containers. Start with 4 GB RAM and monitor the host under your workload.
 - At least 50 GB of free disk before the first build. The current backend
@@ -38,7 +44,7 @@ chmod 600 .env
 
 Edit `.env`:
 
-1. Set `APP_DOMAIN`, `API_DOMAIN`, `GIT_DOMAIN`, and `ACME_EMAIL`.
+1. Set `APP_DOMAIN`, `GIT_DOMAIN`, and `ACME_EMAIL`.
 2. Replace every `change-me` value. `openssl rand -hex 32` produces values that
    are both strong and safe inside the generated PostgreSQL URI.
 3. Configure optional integrations only when you need them. The committed
@@ -63,7 +69,7 @@ Once the health checks pass, open:
 | Service | URL |
 | --- | --- |
 | Dashboard | `https://<APP_DOMAIN>` |
-| API | `https://<API_DOMAIN>/api-gateway/` |
+| API | `https://<APP_DOMAIN>/api-gateway/` |
 | Gitea | `https://<GIT_DOMAIN>` |
 
 ### OAuth signing key
@@ -72,9 +78,198 @@ Set `OAUTH_JWKS` in `.env` to a JSON JWK set stored only on the host (never in
 git). Empty or invalid → backend boots and serves legacy login/API traffic, but
 every `/oauth/*` and well-known OAuth metadata route returns `503
 oauth_not_configured`, so the native mobile app cannot complete discovery.
-`DASHBOARD_URL` / `SERVER_URL` are derived from `APP_DOMAIN` / `API_DOMAIN` in
-Compose; see [`backend-v2` OAuth deployment contract](../../backend-cluster/backend-v2/README.md#oauth-deployment-contract)
+`DASHBOARD_URL` and `SERVER_URL` are both derived from `APP_DOMAIN` in Compose;
+see [`backend-v2` OAuth deployment contract](../../backend-cluster/backend-v2/README.md#oauth-deployment-contract)
 for the reverse-proxy well-known routes.
+
+## Cloudflare Tunnel and Access
+
+Use the tunnel overlay when cloudflared already runs alongside other Compose
+applications. It removes Caddy's host port mappings and adds Caddy to an
+external Docker network. Create that network once if it does not already
+exist, and attach the cloudflared service to it in cloudflared's own Compose
+file:
+
+```zsh
+docker network inspect cloudflare >/dev/null 2>&1 || docker network create cloudflare
+```
+
+Set these values in `.env`:
+
+```dotenv
+CADDY_SCHEME=http://
+CLOUDFLARE_NETWORK=cloudflare
+CLOUDFLARE_ACCESS_ISSUER=https://your-team.cloudflareaccess.com
+CLOUDFLARE_ACCESS_AUDIENCE=the-access-application-aud-tag
+```
+
+Then use both Compose files for every operation:
+
+```zsh
+export COMPOSE_FILE=docker-compose.yml:docker-compose.cloudflare.yml
+docker compose config --quiet
+docker compose up -d --build
+```
+
+Point each tunnel hostname at `http://beancount-caddy:80`. The cloudflared
+container resolves that alias on `CLOUDFLARE_NETWORK`; Caddy routes by the
+original request host. Do not also expose Caddy's ports or add an origin IP DNS
+record, because that would create a path around Access.
+
+Configure Cloudflare Zero Trust as follows:
+
+1. Keep the Authelia portal in its own Access application, using the desired
+  Cloudflare account authentication policy.
+2. Create one self-hosted Access application for the Beancount hostnames, or a
+  wildcard covering them, so every published hostname produces the same AUD
+  tag. Select Authelia as that application's identity provider.
+3. Protect every application path, including `/api-gateway/*`. Do not add an
+  API bypass or service-token exception for the iOS app.
+4. Enable Managed OAuth and dynamic client registration for the Beancount
+  Access application, then allow the exact redirect
+  `https://<APP_DOMAIN>/oauth/callback`. The iOS app discovers Cloudflare's
+  protected-resource metadata and dynamically registers a public PKCE client;
+  it stores no client secret.
+5. Add one narrowly scoped bypass for
+  `/.well-known/apple-app-site-association` when shipping the iOS app. Apple
+  must fetch this static app-link voucher without an interactive login. It
+  contains only the Apple Team ID, bundle ID, and allowed paths; no API or
+  financial data is exposed.
+
+Access injects `Cf-Access-Jwt-Assertion` after authentication. Backend-v2
+validates its signature, issuer, and exact application audience, then
+provisions the matching local and Gitea account. In Access mode, missing or
+invalid assertions cannot become an application identity, and Beancount's
+password, magic-link, signup, reset, and refresh ceremonies are disabled.
+Browser traffic uses the Access cookie; iOS uses the Managed OAuth bearer and
+refresh token. Both become the same validated Access identity at the origin.
+
+`OAUTH_JWKS` may remain empty in this mode because Cloudflare, rather than
+Beancount, is the native authorization server. It is still required if the
+built-in Beancount OAuth provider is exposed to any other client.
+
+## AMD64 deployment
+
+Every service defaults to `DOCKER_PLATFORM=linux/amd64`. Builds made on Apple
+Silicon therefore run on an x86_64 host, and builds made directly on an x86_64
+host remain native. Keep this value in `.env`:
+
+```dotenv
+DOCKER_PLATFORM=linux/amd64
+```
+
+For a checkout under `/srv/docker/beancount-io` on the target server:
+
+```zsh
+cd /srv/docker/beancount-io/deploy/docker
+export COMPOSE_FILE=docker-compose.yml:docker-compose.cloudflare.yml
+docker compose config --quiet
+docker compose build --pull
+docker compose up -d
+docker compose ps --all
+```
+
+Verify a locally built image with:
+
+```zsh
+docker image inspect beancount-io/backend-v2:selfhosted \
+  --format '{{.Os}}/{{.Architecture}}'
+```
+
+The expected value is `linux/amd64`.
+
+To transfer prebuilt application images instead of rebuilding on the target
+server, copy the source and image archives to the host, then load and start them
+with `--no-build`:
+
+```zsh
+sudo mkdir -p /srv/docker/beancount-io
+sudo tar -xzf /tmp/beancount-io-source.tar.gz -C /srv/docker/beancount-io
+docker load < /tmp/beancount-web-amd64-images.tar.gz
+
+cd /srv/docker/beancount-io/deploy/docker
+cp .env.example .env
+chmod 600 .env
+# Replace every change-me value and configure the domains and Access settings.
+export COMPOSE_FILE=docker-compose.yml:docker-compose.cloudflare.yml
+docker compose config --quiet
+docker compose up -d --no-build
+docker compose ps --all
+```
+
+Compose still pulls the pinned Caddy, Gitea, PostgreSQL, and Redis images. The
+three locally built application images are loaded from the transfer archive and
+must report `linux/amd64` before startup.
+
+## iOS build for this deployment
+
+Use an Apple bundle ID owned by your Developer team. The same bundle ID and
+Team ID must be present in the app entitlement and the backend's AASA response.
+Set the server and verified HTTPS callback before Expo generates the Xcode
+project.
+
+For a local Xcode build, the Mac needs Node 20.19.4+, Yarn Classic, CocoaPods,
+Xcode, and Apple signing configured:
+
+```zsh
+cd mobile
+export EXPO_PUBLIC_SERVER_URL=https://books.example.com/
+export EXPO_PUBLIC_OAUTH_REDIRECT_URL=https://books.example.com/oauth/callback
+export EXPO_IOS_BUNDLE_IDENTIFIER=com.example.beancount
+yarn install
+yarn expo prebuild --platform ios --clean
+open ios/Beancount.xcworkspace
+```
+
+In Xcode, select the Beancount target, choose your Team under Signing &
+Capabilities, confirm the bundle identifier, and build for a connected iPhone.
+The generated target must retain the Associated Domains entitlement for
+`applinks:<APP_DOMAIN>`. `yarn ios:device` performs the prebuild/build/device
+flow from the terminal once Xcode signing and CocoaPods are available.
+
+When Node and CocoaPods must not be installed on the Mac, run an EAS build from
+a disposable Node container instead. The build itself runs on Expo's macOS
+workers; authenticate with Expo and Apple directly at the interactive prompts,
+or provide an `EXPO_TOKEN` through your shell without committing it:
+
+```zsh
+cd mobile
+docker volume create beancount-mobile-modules
+docker run --rm -it \
+  -e EXPO_PUBLIC_SERVER_URL=https://books.example.com/ \
+  -e EXPO_PUBLIC_OAUTH_REDIRECT_URL=https://books.example.com/oauth/callback \
+  -e EXPO_IOS_BUNDLE_IDENTIFIER=com.example.beancount \
+  -e EXPO_TOKEN \
+  -v "$PWD:/app" \
+  -v beancount-mobile-modules:/app/node_modules \
+  -w /app node:22-bookworm sh -lc \
+  'corepack enable && yarn install --frozen-lockfile && npx --yes eas-cli@latest build --platform ios --profile production'
+```
+
+Do not pass Expo or Apple credentials on the command line or store them in the
+repository. A local Xcode compile cannot be completed with Xcode alone: this
+Expo project intentionally builds native camera modules from source, so its
+CocoaPods install must run on macOS rather than in a Linux container.
+
+Set the matching deployment values on the target server:
+
+```dotenv
+APP_LINKS_APPLE_TEAM_ID=YOUR10CHARTEAMID
+APP_LINKS_IOS_BUNDLE_ID=com.example.beancount
+```
+
+After deploying and adding the exact AASA bypass, verify the voucher without a
+Cloudflare session:
+
+```zsh
+curl -fsS https://books.example.com/.well-known/apple-app-site-association
+```
+
+It must return JSON containing
+`YOUR10CHARTEAMID.com.example.beancount` and `/oauth/callback`. A signed device
+build cannot receive the HTTPS OAuth callback until that public file is valid,
+the domain entitlement matches, and Cloudflare Managed OAuth allows the same
+redirect URI.
 
 If startup stops at either one-shot service, inspect it directly:
 
@@ -120,8 +315,8 @@ docker compose down                    # stop while preserving data
 For a repository upgrade, back up first, review the release diff, pull the
 desired commit, and run `docker compose up -d --build`. Compose recreates the
 changed app containers; `backend-migrate` reruns its idempotent migration before
-the new backend starts. Changing `API_DOMAIN` requires a dashboard rebuild
-because the browser-facing API URL is compiled into its bundle.
+the new backend starts. Changing `APP_DOMAIN` requires a dashboard rebuild
+because the browser-facing same-origin API URL is compiled into its bundle.
 
 The default dependency image tags follow patch releases within their selected
 major/minor lines. Pin full tags or image digests in `.env` if your rollout

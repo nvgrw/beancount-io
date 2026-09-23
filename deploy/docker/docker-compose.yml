@@ -42,17 +42,18 @@ volumes:
 services:
   caddy:
     image: ${CADDY_IMAGE:-caddy:2-alpine}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
     logging: *default-logging
     networks:
       - edge
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${CADDY_BIND:-0.0.0.0}:${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_BIND:-0.0.0.0}:${CADDY_HTTPS_PORT:-443}:443"
+      - "${CADDY_BIND:-0.0.0.0}:${CADDY_HTTPS_PORT:-443}:443/udp"
     environment:
+      CADDY_SCHEME: ${CADDY_SCHEME:-https://}
       APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN in .env}
-      API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN in .env}
       GIT_DOMAIN: ${GIT_DOMAIN:?Set GIT_DOMAIN in .env}
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL in .env}
     volumes:
@@ -73,11 +74,12 @@ services:
       dockerfile: Dockerfile
       args:
         # Browser URL is compiled into the client bundle.
-        VITE_API_URL: https://${API_DOMAIN:?Set API_DOMAIN in .env}/api-gateway/
+        VITE_API_URL: https://${APP_DOMAIN:?Set APP_DOMAIN in .env}/api-gateway/
         # SSR stays on the private Compose network.
         VITE_SSR_API_URL: http://backend-v2:4104/api-gateway/
         VITE_GA_MEASUREMENT_ID: ${VITE_GA_MEASUREMENT_ID:-}
     image: beancount-io/dashboard:${BEANCOUNT_IMAGE_TAG:-selfhosted}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
     logging: *default-logging
     networks:
@@ -97,6 +99,7 @@ services:
 
   backend-v2:
     <<: *backend-image
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
     logging: *default-logging
     networks:
@@ -124,9 +127,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: 4104
-      SERVER_URL: https://${API_DOMAIN:?Set API_DOMAIN in .env}
+      SERVER_URL: https://${APP_DOMAIN:?Set APP_DOMAIN in .env}
       DASHBOARD_URL: https://${APP_DOMAIN:?Set APP_DOMAIN in .env}
       AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env}
+      CLOUDFLARE_ACCESS_ISSUER: ${CLOUDFLARE_ACCESS_ISSUER:-}
+      CLOUDFLARE_ACCESS_AUDIENCE: ${CLOUDFLARE_ACCESS_AUDIENCE:-}
       COOKIE_SECRETS: ${COOKIE_SECRETS:?Set COOKIE_SECRETS in .env}
       ADMIN_TOKEN: ${ADMIN_TOKEN:?Set ADMIN_TOKEN in .env}
       METRICS_API_TOKEN: ${METRICS_API_TOKEN:?Set METRICS_API_TOKEN in .env}
@@ -139,7 +144,9 @@ services:
       OAUTH_JWKS: ${OAUTH_JWKS:-}
       # Native app-link vouchers. Unset → /.well-known AASA and assetlinks 404.
       APP_LINKS_APPLE_TEAM_ID: ${APP_LINKS_APPLE_TEAM_ID:-}
+      APP_LINKS_IOS_BUNDLE_ID: ${APP_LINKS_IOS_BUNDLE_ID:-io.beancount.ios}
       APP_LINKS_ANDROID_SHA256: ${APP_LINKS_ANDROID_SHA256:-}
+      APP_LINKS_ANDROID_PACKAGE: ${APP_LINKS_ANDROID_PACKAGE:-io.beancount.android}
       AUTH_JWT_EXP_MINUTES: ${AUTH_JWT_EXP_MINUTES:-525600}
       POSTGRES_BACKEND_URI: postgresql://${BACKEND_DB_USER:-beancount}:${BACKEND_DB_PASSWORD:?Set BACKEND_DB_PASSWORD in .env}@postgres-backend:5432/${BACKEND_DB_NAME:-beancount}
       REDIS_URI: redis://redis:6379
@@ -194,7 +201,8 @@ services:
 
   # Runs the idempotent Drizzle migrator before backend-v2 is allowed to start.
   backend-migrate:
-    <<: *backend-image
+    image: beancount-io/backend-v2:${BEANCOUNT_IMAGE_TAG:-selfhosted}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: "no"
     logging: *default-logging
     command: ["node", "scripts/migrate-deploy.js"]
@@ -212,6 +220,7 @@ services:
       context: ../../backend-cluster/ledger
       dockerfile: Dockerfile
     image: beancount-io/ledger:${BEANCOUNT_IMAGE_TAG:-selfhosted}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
     logging: *default-logging
     networks:
@@ -242,6 +251,7 @@ services:
 
   gitea:
     image: ${GITEA_IMAGE:-docker.gitea.com/gitea:1.24}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
     logging: *default-logging
     networks:
@@ -294,6 +304,7 @@ services:
   # initialized app.ini and its database. A completed container is expected.
   gitea-init:
     image: ${GITEA_IMAGE:-docker.gitea.com/gitea:1.24}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: "no"
     logging: *default-logging
     user: "${GITEA_UID:-1000}:${GITEA_GID:-1000}"
@@ -324,6 +335,7 @@ services:
 
   postgres-gitea:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
     logging: *default-logging
     networks:
@@ -343,6 +355,7 @@ services:
 
   postgres-backend:
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
     logging: *default-logging
     networks:
@@ -362,6 +375,7 @@ services:
 
   redis:
     image: ${REDIS_IMAGE:-redis:7-alpine}
+    platform: ${DOCKER_PLATFORM:-linux/amd64}
     restart: unless-stopped
     logging: *default-logging
     networks:
