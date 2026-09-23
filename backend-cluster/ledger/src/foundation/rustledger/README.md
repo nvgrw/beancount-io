@@ -61,6 +61,21 @@ aggregation) — see `NOTICE` in the service root for the containment strategy.
 `files` is a `path -> contents` map; the caller fetches it from Gitea (the same
 files the Python service loaded). `include` is resolved from `entryPoint`.
 
+## Repository entry point
+
+Ledger repositories use `main.bean` as the entry point by default. To select a
+different parse root, add `.beancountio.json` at the repository root:
+
+```json
+{
+  "entrypoint": "books/root.bean"
+}
+```
+
+The path must be repository-relative and end in `.bean` or `.beancount`. If the
+dotfile or its `entrypoint` property is absent, loading falls back to
+`main.bean`.
+
 ## Staged endpoint migration (Python fava_api → this engine)
 
 The Python service's callers hit ~58 fava_api endpoints: ~22 are pure Gitea

@@ -239,8 +239,13 @@ export function setReportsHandler(router: Router): void {
   });
 
   router.get(`${base}/beancountio-options`, authMiddleware, async (ctx) => {
-    const { snapshot } = await loadSnapshotForRequest(ctx, ledgerIdOf(ctx));
-    ctx.body = successResponse(parseBcioOptions(snapshot.directives));
+    const { entryPoint, snapshot } = await loadSnapshotForRequest(
+      ctx,
+      ledgerIdOf(ctx),
+    );
+    ctx.body = successResponse(
+      parseBcioOptions(snapshot.directives, entryPoint),
+    );
   });
 
   router.get(`${base}/plugins`, authMiddleware, async (ctx) => {

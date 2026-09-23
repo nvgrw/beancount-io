@@ -36,7 +36,7 @@ export const CACHE_KEYS = {
      * `foundation/clients/load-cached-ledger-file-map.ts`.
      */
     fileMapBySha: (owner: string, repo: string, sha: string) =>
-      `ledger:file_map_v2:${owner}:${repo}:${sha}`,
+      `ledger:file_map_v3:${owner}:${repo}:${sha}`,
     /**
      * Pointer to the SHA whose FileMap is currently cached for a repo. When HEAD
      * moves, the loader deletes the superseded `fileMapBySha` entry so the cache
@@ -44,7 +44,7 @@ export const CACHE_KEYS = {
      * without an eviction policy (this Redis is authoritative for auth tokens).
      */
     fileMapHeadSha: (owner: string, repo: string) =>
-      `ledger:file_map_head_v2:${owner}:${repo}`,
+      `ledger:file_map_head_v3:${owner}:${repo}`,
     /**
      * One validated revision of a managed price feed (ADR 015 section 5): the
      * exact bytes plus what validation learned about them. Immutable per

@@ -6,6 +6,7 @@ export * from "./ledger-handle-cache";
 export * from "./rustledger-worker-pool";
 export * from "./directives-report";
 export * from "./file-map-loader";
+export * from "./ledger-config";
 export * from "./account-tree";
 export * from "./price-map";
 export * from "./cost-valuation";

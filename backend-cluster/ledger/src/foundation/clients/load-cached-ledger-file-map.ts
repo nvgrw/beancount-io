@@ -1,11 +1,11 @@
 import type { FileMap } from "@rustledger/wasm";
 import {
   collectSourceFiles,
-  DEFAULT_ENTRY_POINT,
   fetchBeanFileMap,
   ledgerFileMapPayloadBytes,
   loadLedgerFileMap,
   requireEntryPoint,
+  resolveLedgerEntryPoint,
   type GiteaReposContentClient,
   type LoadedLedger,
   type LoadLedgerOptions,
@@ -37,14 +37,11 @@ const MAX_CACHED_FILE_MAP_BYTES = 4 * 1024 * 1024;
  * commit SHA *is* the invalidation signal (cleaner than fava's mtime/LRU +
  * push-webhook pairing).
  *
- * The cached value is the FileMap alone — NOT the entry point. The fetch pulls
- * the repo's whole `.bean` tree regardless of entry point, so the payload is a
- * pure function of the commit; keying on the entry point too would store
- * byte-identical FileMaps under distinct keys. The entry point is validated
- * in-memory after retrieval instead (`requireEntryPoint`), preserving the
- * loader's NotFoundError semantics. A corollary: a load with a *missing* entry
- * point still caches the fetched FileMap (correctly — other entry points can
- * serve from it) before the error propagates.
+ * The cached value contains the FileMap, repository paths, and optional
+ * commit-derived `.beancountio.json` entrypoint. The resolved entry point is
+ * NOT part of the key: an internal override is applied and validated in-memory
+ * after retrieval (`requireEntryPoint`). A load with a missing resolved entry
+ * point therefore still caches the commit payload before the error propagates.
  *
  * HEAD-SHA resolution is coalesced per client instance: concurrent loads for
  * the same repo through the same client (e.g. parallel GraphQL resolvers of
@@ -214,12 +211,11 @@ async function withManagedPrices(
  * Gitea call); on a miss it fetches via {@link fetchBeanFileMap}, pinned to the
  * resolved SHA so the tree and file reads observe one consistent commit.
  *
- * The cached value (a plain `path → contents` record) round-trips through the
- * cache codec unchanged. `getOrSet` is read-through, stampede-guarded, and
- * fails open — a Redis outage runs the loader instead of breaking the request.
- * The entry point is validated after retrieval; a missing one throws
- * NotFoundError (same semantics as {@link loadLedgerFileMap}) without
- * invalidating the cached FileMap.
+ * The commit-derived payload round-trips through the cache codec unchanged.
+ * `getOrSet` is read-through, stampede-guarded, and fails open — a Redis outage
+ * runs the loader instead of breaking the request. The resolved entry point is
+ * validated after retrieval; a missing one throws NotFoundError (same semantics
+ * as {@link loadLedgerFileMap}) without invalidating the cached FileMap.
  */
 export async function loadCachedFileMapForRepo(
   client: GiteaCommitClient,
@@ -228,8 +224,6 @@ export async function loadCachedFileMapForRepo(
   repo: string,
   options: CachedLoadOptions = {},
 ): Promise<LoadedLedgerWithManagedPrices> {
-  const entryPoint = options.entryPoint ?? DEFAULT_ENTRY_POINT;
-
   // A caller that already pinned a concrete ref has a content address; otherwise
   // resolve HEAD to one so the cache key is stable per commit.
   //
@@ -249,7 +243,7 @@ export async function loadCachedFileMapForRepo(
     return withManagedPrices(
       await loadLedgerFileMap(client, owner, repo, {
         ref: options.ref,
-        entryPoint,
+        entryPoint: options.entryPoint,
       }),
       cacheHelper,
       options,
@@ -268,9 +262,11 @@ export async function loadCachedFileMapForRepo(
     await evictSupersededFileMap(client, cacheHelper, owner, repo, sha);
   }
 
-  const { files, repoPaths } = await cacheHelper.getOrSet<{
+  const { files, repoPaths, configuredEntryPoint } =
+    await cacheHelper.getOrSet<{
     files: FileMap;
     repoPaths: string[];
+    configuredEntryPoint?: string;
   }>(
     CACHE_KEYS.ledger.fileMapBySha(owner, repo, sha),
     // Keyed by an immutable commit SHA, so correctness is push-driven, not
@@ -280,8 +276,16 @@ export async function loadCachedFileMapForRepo(
     TTL.HOUR_2,
     () => fetchBeanFileMap(client, owner, repo, sha),
     (value) =>
-      ledgerFileMapPayloadBytes(value.files, value.repoPaths) <=
+      ledgerFileMapPayloadBytes(
+        value.files,
+        value.repoPaths,
+        value.configuredEntryPoint,
+      ) <=
       MAX_CACHED_FILE_MAP_BYTES,
+  );
+  const entryPoint = resolveLedgerEntryPoint(
+    configuredEntryPoint,
+    options.entryPoint,
   );
   requireEntryPoint(files, owner, repo, entryPoint);
   const sourceFiles = collectSourceFiles(files, entryPoint);

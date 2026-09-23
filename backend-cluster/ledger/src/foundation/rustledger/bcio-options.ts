@@ -57,10 +57,10 @@ type NullableStrKey = (typeof NULLABLE_STR_KEYS)[number];
 
 const NULLABLE_STR_KEY_SET: ReadonlySet<string> = new Set(NULLABLE_STR_KEYS);
 
-/** Fresh copy of the Fava default `BcioOptions` (all-null except `default_file`). */
-function defaultBcioOptions(): BcioOptionsPublic {
+/** Fresh options, using the resolved ledger entry point as the default file. */
+function defaultBcioOptions(defaultFile: string): BcioOptionsPublic {
   return {
-    default_file: DEFAULT_FILE_DEFAULT,
+    default_file: defaultFile,
     transaction_file: null,
     account_file: null,
     price_file: null,
@@ -86,8 +86,9 @@ function defaultBcioOptions(): BcioOptionsPublic {
  */
 export function parseBcioOptions(
   directives: DirectiveJson[],
+  defaultFile: string = DEFAULT_FILE_DEFAULT,
 ): BcioOptionsPublic {
-  const options = defaultBcioOptions();
+  const options = defaultBcioOptions(defaultFile);
 
   directives.forEach((directive) => {
     if (directive.type !== "custom") return;

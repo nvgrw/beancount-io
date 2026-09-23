@@ -64,6 +64,26 @@ describe("parseBcioOptions", () => {
     expect(parseBcioOptions([])).toEqual(golden.empty);
   });
 
+  it("uses a configured entry point as the default file", () => {
+    expect(parseBcioOptions([], "books/root.bean")).toEqual({
+      ...golden.empty,
+      default_file: "books/root.bean",
+    });
+  });
+
+  it("lets an explicit default_file directive override the entry point", () => {
+    const directive = customStrings(
+      "beancountio-option",
+      "2000-01-01",
+      "default_file",
+      "transactions.bean",
+    );
+
+    expect(parseBcioOptions([directive], "books/root.bean").default_file).toBe(
+      "transactions.bean",
+    );
+  });
+
   it("parses the full set of string options (Fava-exact golden)", () => {
     const directives: DirectiveJson[] = [
       customStrings(
