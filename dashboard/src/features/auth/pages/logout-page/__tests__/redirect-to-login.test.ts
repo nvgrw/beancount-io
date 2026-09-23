@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { redirectToLoginAfterLogout } from "../redirect-to-login";
 
 describe("redirectToLoginAfterLogout", () => {
-  it("replaces the logout URL with the plain login URL", () => {
+  it("ends the Cloudflare Access session", () => {
     const replace = vi.fn();
 
     redirectToLoginAfterLogout({ replace });
 
-    expect(replace).toHaveBeenCalledWith("/auth/login");
+    expect(replace).toHaveBeenCalledWith("/cdn-cgi/access/logout");
   });
 });
