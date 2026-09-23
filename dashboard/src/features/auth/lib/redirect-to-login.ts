@@ -6,5 +6,5 @@
 export function redirectToLogin(
   location: Pick<Location, "replace"> = window.location,
 ): void {
-  location.replace("/auth/login");
+  location.replace("/cdn-cgi/access/logout");
 }

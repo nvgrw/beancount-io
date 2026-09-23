@@ -6,6 +6,7 @@ import type { IAuthSessionWorkflow } from "@/features/auth/workflow/auth-session
 import {
   UnauthenticatedError,
   BadUserInputError,
+  ForbiddenError,
   RateLimitedError,
   ServiceUnavailableError,
 } from "@/shared/errors";
@@ -132,6 +133,21 @@ describe("AuthResolver", () => {
   });
 
   describe("signIn", () => {
+    it("rejects local credentials when Cloudflare Access is configured", async () => {
+      mockContext.config.cloudflareAccess = {
+        issuer: "https://team.cloudflareaccess.com",
+        audience: "access-audience",
+      };
+
+      await expect(
+        resolver.signIn(mockContext, {
+          email: "user@example.com",
+          password: "password123",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      expect(mockAuthSessionWorkflow.loginUser).not.toHaveBeenCalled();
+    });
+
     it("should sign in user with valid credentials", async () => {
       const args = { email: "user@example.com", password: "password123" };
       const mockResponse = { token: "auth-token", expireAt: new Date() };

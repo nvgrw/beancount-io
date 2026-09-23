@@ -8,6 +8,7 @@ import {
 import { serverConfig } from "@/config/config.server";
 
 import { getCookie } from "@tanstack/react-start/server";
+import { getRequest } from "@tanstack/react-start/server";
 
 // Dev-only SSR request logging (see the DEV-gated link wiring below).
 // Never log operation.variables: they can contain user financial data (PII)
@@ -37,10 +38,16 @@ const loggingLink = new ApolloLink((operation, forward) => {
  *  request cookie to the backend so authenticated queries work on the server. */
 export function createApolloSsrClient() {
   const token = getCookie("authSess:beancount.io");
+  const accessAssertion = getRequest().headers.get("cf-access-jwt-assertion");
   const httpLink = new HttpLink({
     uri: serverConfig.apiUrl,
     fetch,
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(accessAssertion
+        ? { "Cf-Access-Jwt-Assertion": accessAssertion }
+        : {}),
+    },
   });
   return new ApolloClient({
     ssrMode: true,

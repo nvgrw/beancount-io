@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import ForgotPasswordPage from "@/features/auth/pages/forgot-password-page";
 import { z } from "zod";
 import { getSEOMetadata, createHeadMeta } from "@/common/lib/seo/seo-helpers";
@@ -11,6 +11,9 @@ const forgotPasswordSearchSchema = z.object({
 
 export const Route = createFileRoute("/auth/forgot-password")({
   component: ForgotPasswordPage,
+  beforeLoad: ({ context }) => {
+    if (context.userProfile) throw redirect({ to: "/auth/welcome" });
+  },
   validateSearch: (search) => forgotPasswordSearchSchema.parse(search),
   head: ({ match }) =>
     createHeadMeta(

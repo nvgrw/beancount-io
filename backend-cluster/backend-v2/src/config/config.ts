@@ -57,11 +57,6 @@ interface DashboardConfig {
 }
 
 /**
- * Native app-link vouchers for `/.well-known/apple-app-site-association` and
- * `/.well-known/assetlinks.json`. Unset when a self-host has no native build —
- * those routes then 404 rather than advertising someone else's app.
- */
-/**
  * Domain proof for the official MCP Registry (registry.modelcontextprotocol.io):
  * the public record a `mcp-publisher login http` signature is verified against,
  * served at `/.well-known/mcp-registry-auth`. Unset on a self-host — serving
@@ -196,6 +191,13 @@ interface OAuthConfig {
   discourseClientSecret: string;
 }
 
+export interface CloudflareAccessConfig {
+  /** Cloudflare Zero Trust team origin, for example https://team.cloudflareaccess.com. */
+  issuer: string;
+  /** AUD tag of the Access application protecting this deployment. */
+  audience: string;
+}
+
 /**
  * The API suite's own settings (ADR 0006). Authorization policy stays
  * hard-coded; development-only test affordances are explicitly inert in every
@@ -286,6 +288,8 @@ export interface AppConfig {
   oauth: OAuthConfig;
   /** Sign-in through an outside OpenID Connect provider; unset when off. */
   oidcLogin?: OidcLoginConfig;
+  /** Unset keeps the upstream Beancount authentication behavior unchanged. */
+  cloudflareAccess?: CloudflareAccessConfig;
 }
 
 export interface OidcLoginConfig {
@@ -496,6 +500,13 @@ const oauthInteractionUrl = getOAuthPublicUrl(
 );
 assertOAuthInteractionHost(oauthIssuer, oauthInteractionUrl);
 const oauthSigningKeys = getOptionalJwks(environment);
+const cloudflareAccessIssuer = process.env.CLOUDFLARE_ACCESS_ISSUER?.trim();
+const cloudflareAccessAudience = process.env.CLOUDFLARE_ACCESS_AUDIENCE?.trim();
+if (Boolean(cloudflareAccessIssuer) !== Boolean(cloudflareAccessAudience)) {
+  throw new Error(
+    "CLOUDFLARE_ACCESS_ISSUER and CLOUDFLARE_ACCESS_AUDIENCE must be configured together",
+  );
+}
 
 export const config: AppConfig = {
   api: {
@@ -619,4 +630,17 @@ export const config: AppConfig = {
     discourseClientSecret: process.env.OAUTH_DISCOURSE_CLIENT_SECRET || "",
   },
   oidcLogin: readOidcLogin(),
+  ...(cloudflareAccessIssuer && cloudflareAccessAudience
+    ? {
+        cloudflareAccess: {
+          issuer: getOAuthPublicUrl(
+            cloudflareAccessIssuer,
+            cloudflareAccessIssuer,
+            "CLOUDFLARE_ACCESS_ISSUER",
+            environment,
+          ),
+          audience: cloudflareAccessAudience,
+        },
+      }
+    : {}),
 };
