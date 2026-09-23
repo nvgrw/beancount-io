@@ -1,5 +1,0 @@
-What's New in Version 1.20260809.41:
-
-• Haptic feedback when switching chart time ranges (1M/3M/6M/YTD/1Y/ALL)
-• Session token now stored securely in Keychain/Keystore
-• Theme colors and app icon aligned with the Beancount.io brand

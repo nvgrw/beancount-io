@@ -1,9 +1,0 @@
-package-lock.json
-package.json
-.asc
-.github
-__generated__
-src/generated-graphql
-src/common/graphql/queries
-# The schema an older server serves, kept byte-for-byte from the codegen snapshot
-src/common/__tests__/fixtures/older-server.schema.graphql

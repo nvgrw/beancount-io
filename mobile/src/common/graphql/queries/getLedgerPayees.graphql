@@ -1,3 +1,0 @@
-query getLedgerPayees($ledgerId: String!) {
-  getLedgerPayees(ledgerId: $ledgerId)
-}

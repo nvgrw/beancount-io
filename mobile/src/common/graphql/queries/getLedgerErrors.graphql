@@ -1,9 +1,0 @@
-query getLedgerErrors($ledgerId: String!) {
-  getLedgerErrors(ledgerId: $ledgerId) {
-    filename
-    lineno
-    message
-    code
-    hint
-  }
-}

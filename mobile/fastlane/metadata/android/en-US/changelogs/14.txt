@@ -1,7 +1,0 @@
-What's New in Version 1.20250811.14:
-
-• Added system default theme option - automatically switches between light and dark modes based on device settings
-• Expanded language support to 13 languages including Bulgarian, Catalan, German, Persian, Dutch, Portuguese, Russian, Slovak, and Ukrainian
-• Fixed app crash from negative data values in bar charts
-• Improved UI with new picker component for better theme selection
-• Enhanced performance by removing heavy dependencies and optimizing chart visualizations with D3.js

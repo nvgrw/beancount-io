@@ -1,8 +1,0 @@
-query LedgerManagedPrices($ledgerId: String!) {
-  getLedgerManagedPrices(ledgerId: $ledgerId) {
-    commodity
-    quote
-    freshness
-    observedAt
-  }
-}
