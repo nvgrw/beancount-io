@@ -7,32 +7,23 @@ development, use [`../docker-mac/`](../docker-mac/) instead.
 
 The topology follows Docker's production guidance: application code stays in
 the images, state lives under `./data`, services restart automatically,
-readiness is health-gated, and container logs are bounded. In direct mode,
-Caddy is the only HTTP service published on the host and manages TLS. The
-Cloudflare Tunnel overlay publishes no host ports and connects Caddy directly
-to cloudflared on a shared Docker network.
+readiness is health-gated, and container logs are bounded. Caddy serves HTTP
+only on `127.0.0.1:8004`; host-managed cloudflared is the sole public ingress.
 
 ## Prerequisites
 
-- A current Docker Engine with Docker Compose v2.24.4 or newer. The tunnel
-  overlay uses Compose's `!reset` tag to remove Caddy's host ports.
+- A current Docker Engine with Docker Compose.
+- A host-managed cloudflared tunnel.
 - A checkout of this repository on the deployment host.
-- Two public DNS names, for example `books.example.com` and
-  `git.books.example.com`. The application hostname serves both the dashboard
-  and `/api-gateway`; the Git hostname serves Gitea and clone URLs. Direct mode
-  points them at the host; Cloudflare Tunnel mode assigns them to the tunnel.
-- Direct mode only: inbound TCP 80 and 443. UDP 443 enables HTTP/3 but is
-  optional. Tunnel mode requires no inbound host ports.
+- One public DNS name, for example `books.example.com`. It serves the dashboard,
+  `/api-gateway`, and smart Git HTTPS endpoints. The tunnel maps it to
+  `http://127.0.0.1:8004`; Gitea stays internal.
+- No inbound host ports are required.
 - Enough resources to build three Node images and run eight long-lived
   containers. Start with 4 GB RAM and monitor the host under your workload.
 - At least 50 GB of free disk before the first build. The current backend
   Dockerfile installs its full dependency tree, so its image and BuildKit cache
   alone can consume tens of gigabytes; budget additional space for ledger data.
-
-Caddy's public certificate flow requires the DNS records to resolve to this
-host and ports 80/443 to be reachable. If another reverse proxy already owns
-those ports, do not run the bundled Caddy service unchanged; add a local
-Compose override that removes its port mappings and joins your proxy network.
 
 ## First boot
 
@@ -44,7 +35,7 @@ chmod 600 .env
 
 Edit `.env`:
 
-1. Set `APP_DOMAIN`, `GIT_DOMAIN`, and `ACME_EMAIL`.
+1. Set `APP_DOMAIN`.
 2. Replace every `change-me` value. `openssl rand -hex 32` produces values that
    are both strong and safe inside the generated PostgreSQL URI.
 3. Keep `SELF_HOSTED_UNLIMITED=true` to disable Stripe billing and grant every
@@ -69,11 +60,11 @@ Two one-shot services should finish with exit code 0:
 
 Once the health checks pass, open:
 
-| Service   | URL                                 |
-| --------- | ----------------------------------- |
-| Dashboard | `https://<APP_DOMAIN>`              |
-| API       | `https://<APP_DOMAIN>/api-gateway/` |
-| Gitea     | `https://<GIT_DOMAIN>`              |
+| Service   | URL                                        |
+| --------- | ------------------------------------------ |
+| Dashboard | `https://<APP_DOMAIN>`                     |
+| API       | `https://<APP_DOMAIN>/api-gateway/`        |
+| Git HTTPS | `https://<APP_DOMAIN>/<owner>/<repo>.git`  |
 
 ### OAuth signing key
 
@@ -87,52 +78,31 @@ for the reverse-proxy well-known routes.
 
 ## Cloudflare Tunnel and Access
 
-Use the tunnel overlay when cloudflared already runs alongside other Compose
-applications. It removes Caddy's host port mappings and adds Caddy to an
-external Docker network. Create that network once if it does not already
-exist, and attach the cloudflared service to it in cloudflared's own Compose
-file:
-
-```zsh
-docker network inspect cloudflare >/dev/null 2>&1 || docker network create cloudflare
-```
-
-Set these values in `.env`:
+Point the application tunnel hostname at `http://127.0.0.1:8004`. The Compose
+stack publishes no other origin port. Set these values in `.env`:
 
 ```dotenv
-CADDY_SCHEME=http://
-CLOUDFLARE_NETWORK=cloudflare
 CLOUDFLARE_ACCESS_ISSUER=https://your-team.cloudflareaccess.com
 CLOUDFLARE_ACCESS_AUDIENCE=the-access-application-aud-tag
 ```
 
-Then use both Compose files for every operation:
-
-```zsh
-export COMPOSE_FILE=docker-compose.yml:docker-compose.cloudflare.yml
-docker compose config --quiet
-docker compose up -d --build
-```
-
-Point each tunnel hostname at `http://beancount-caddy:80`. The cloudflared
-container resolves that alias on `CLOUDFLARE_NETWORK`; Caddy routes by the
-original request host. Do not also expose Caddy's ports or add an origin IP DNS
-record, because that would create a path around Access.
+Do not add an origin IP DNS record or another listener, because that would
+create a path around Access.
 
 Configure Cloudflare Zero Trust as follows:
 
 1. Keep the Authelia portal in its own Access application, using the desired
    Cloudflare account authentication policy.
-2. Create one self-hosted Access application for the Beancount hostnames, or a
-   wildcard covering them, so every published hostname produces the same AUD
-   tag. Select Authelia as that application's identity provider.
+2. Create one self-hosted Access application for the Beancount hostname and
+  select Authelia as its identity provider.
 3. Protect every application path, including `/api-gateway/*`. Do not add an
    API bypass or service-token exception for the iOS app.
 4. Enable Managed OAuth and dynamic client registration for the Beancount
-   Access application, then allow the exact redirect
-   `https://<APP_DOMAIN>/oauth/callback`. The iOS app discovers Cloudflare's
-   protected-resource metadata and dynamically registers a public PKCE client;
-   it stores no client secret.
+  Access application. Allow the exact redirect
+  `https://<APP_DOMAIN>/oauth/callback` for iOS, and enable **Allow loopback
+  clients** for the macOS Git helper's `127.0.0.1` callback. Both clients
+  discover Cloudflare's protected-resource metadata and dynamically register
+  a public PKCE client; neither stores a client secret.
 5. Add one narrowly scoped bypass for
    `/.well-known/apple-app-site-association` when shipping the iOS app. Apple
    must fetch this static app-link voucher without an interactive login. It
@@ -146,6 +116,12 @@ invalid assertions cannot become an application identity, and Beancount's
 password, magic-link, signup, reset, and refresh ceremonies are disabled.
 Browser traffic uses the Access cookie; iOS uses the Managed OAuth bearer and
 refresh token. Both become the same validated Access identity at the origin.
+
+Git over HTTPS uses the same identity path. On macOS, configure the
+[repository-provided Cloudflare Access credential helper](../../docs/GIT_CLOUDFLARE_ACCESS.md)
+so Git sends a Managed OAuth Bearer token proactively. Smart Git requests then
+pass through backend-v2, which translates the verified Access identity to the
+user's internal Gitea credentials.
 
 `OAUTH_JWKS` may remain empty in this mode because Cloudflare, rather than
 Beancount, is the native authorization server. It is still required if the
@@ -165,7 +141,6 @@ For a checkout under `/srv/docker/beancount-io` on the target server:
 
 ```zsh
 cd /srv/docker/beancount-io/deploy/docker
-export COMPOSE_FILE=docker-compose.yml:docker-compose.cloudflare.yml
 docker compose config --quiet
 docker compose build --pull
 docker compose up -d
@@ -199,7 +174,6 @@ chmod 600 .env.build
 
 # Edit at least these build inputs in .env.build:
 # APP_DOMAIN=books.example.com
-# GIT_DOMAIN=git.books.example.com
 # DOCKER_PLATFORM=linux/amd64
 # SELF_HOSTED_UNLIMITED=true
 
@@ -290,9 +264,9 @@ docker compose up -d --no-build --wait
 docker compose ps --all
 ```
 
-If cloudflared or another reverse proxy runs in a separate Compose project, add
-the appropriate deployment override before the final `config` and `up`
-commands. Do not publish an unprotected origin path around Cloudflare Access.
+For a flattened bundle with `compose.yaml` beside a `source/` directory, set
+`SOURCE_ROOT=./source` in its `.env`. This keeps later builds pointed at the
+transferred source tree.
 
 ## iOS build for this deployment
 
