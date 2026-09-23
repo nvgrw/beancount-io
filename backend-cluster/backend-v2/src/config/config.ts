@@ -49,6 +49,8 @@ interface DashboardConfig {
 interface AppLinksConfig {
   /** Apple Developer Team ID (e.g. Beancount.io production: `PTLM7BZQMM`). */
   appleTeamId: string | null;
+  iosBundleId: string;
+  androidPackage: string;
   /** Play App Signing SHA-256 fingerprints, comma-separated in env. */
   androidSha256Fingerprints: readonly string[];
 }
@@ -144,6 +146,13 @@ interface OAuthConfig {
   discourseClientSecret: string;
 }
 
+export interface CloudflareAccessConfig {
+  /** Cloudflare Zero Trust team origin, for example https://team.cloudflareaccess.com. */
+  issuer: string;
+  /** AUD tag of the Access application protecting this deployment. */
+  audience: string;
+}
+
 /**
  * The API suite's own settings (ADR 0006). Authorization policy stays
  * hard-coded; development-only test affordances are explicitly inert in every
@@ -209,6 +218,8 @@ export interface AppConfig {
   metricsApiToken: string;
   adminToken: string;
   oauth: OAuthConfig;
+  /** Unset keeps the upstream Beancount authentication behavior unchanged. */
+  cloudflareAccess?: CloudflareAccessConfig;
 }
 
 function getEnvironment(env: unknown): Environment {
@@ -319,6 +330,13 @@ const oauthInteractionUrl = getOAuthPublicUrl(
 );
 assertOAuthInteractionHost(oauthIssuer, oauthInteractionUrl);
 const oauthSigningKeys = getOptionalJwks(environment);
+const cloudflareAccessIssuer = process.env.CLOUDFLARE_ACCESS_ISSUER?.trim();
+const cloudflareAccessAudience = process.env.CLOUDFLARE_ACCESS_AUDIENCE?.trim();
+if (Boolean(cloudflareAccessIssuer) !== Boolean(cloudflareAccessAudience)) {
+  throw new Error(
+    "CLOUDFLARE_ACCESS_ISSUER and CLOUDFLARE_ACCESS_AUDIENCE must be configured together",
+  );
+}
 
 export const config: AppConfig = {
   api: {
@@ -344,6 +362,10 @@ export const config: AppConfig = {
   },
   appLinks: {
     appleTeamId: process.env.APP_LINKS_APPLE_TEAM_ID?.trim() || null,
+    iosBundleId:
+      process.env.APP_LINKS_IOS_BUNDLE_ID?.trim() || "io.beancount.ios",
+    androidPackage:
+      process.env.APP_LINKS_ANDROID_PACKAGE?.trim() || "io.beancount.android",
     androidSha256Fingerprints: (process.env.APP_LINKS_ANDROID_SHA256 ?? "")
       .split(",")
       .map((value) => value.trim())
@@ -446,4 +468,17 @@ export const config: AppConfig = {
     // equivalent to unset, so the optional client is simply not registered.
     discourseClientSecret: process.env.OAUTH_DISCOURSE_CLIENT_SECRET || "",
   },
+  ...(cloudflareAccessIssuer && cloudflareAccessAudience
+    ? {
+        cloudflareAccess: {
+          issuer: getOAuthPublicUrl(
+            cloudflareAccessIssuer,
+            cloudflareAccessIssuer,
+            "CLOUDFLARE_ACCESS_ISSUER",
+            environment,
+          ),
+          audience: cloudflareAccessAudience,
+        },
+      }
+    : {}),
 };

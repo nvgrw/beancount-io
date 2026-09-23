@@ -2,6 +2,7 @@ import { Context, Next } from "koa";
 import { randomUUID } from "node:crypto";
 import { asyncContext } from "@/shared/async-context";
 import { getTokenFromCtx } from "@/features/auth/utils/auth";
+import { CLOUDFLARE_ACCESS_ASSERTION_HEADER } from "@/features/auth/utils/cloudflare-access";
 
 /**
  * Middleware that sets up AsyncLocalStorage context for each request.
@@ -42,7 +43,9 @@ export async function asyncContextMiddleware(
   // bearer, x-api-key, and the session cookie — into one string, and the kind
   // is deliberately not narrowed: the far end resolves all three from that one
   // cookie, so filtering here would only drop credentials that work.
-  const sessionToken = getTokenFromCtx(ctx as never) || undefined;
+  const sessionToken = ctx.headers[CLOUDFLARE_ACCESS_ASSERTION_HEADER]
+    ? undefined
+    : getTokenFromCtx(ctx as never) || undefined;
 
   // Run the rest of the request within the async context
   await asyncContext.run({ requestId, sessionToken }, async () => {

@@ -11,6 +11,8 @@ const config = {
   oauth: { issuer: "https://beancount.io" },
   appLinks: {
     appleTeamId: "PTLM7BZQMM",
+    iosBundleId: "io.beancount.ios",
+    androidPackage: "io.beancount.android",
     androidSha256Fingerprints: [
       "AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99",
     ],
@@ -143,7 +145,7 @@ describe("well-known routes", () => {
     expect(body.applinks.details).toEqual([
       {
         appID: "PTLM7BZQMM.io.beancount.ios",
-        paths: ["/ledger/*"],
+        paths: ["/ledger/*", "/oauth/callback"],
       },
     ]);
   });
