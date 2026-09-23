@@ -12,6 +12,12 @@ import {
   type GiteaRawFileClient,
   type GiteaTextContents,
 } from "@/features/gitea/utils/gitea-file-content";
+import {
+  LEDGER_CONFIG_PATH,
+  MAX_LEDGER_CONFIG_BYTES,
+  parseBeancountIoConfig,
+  resolveLedgerEntryPoint,
+} from "./ledger-config";
 
 /**
  * Build the `FileMap` (`path -> contents`) that `@rustledger/wasm`'s
@@ -335,9 +341,6 @@ export function globToRegExp(glob: string): GlobMatcher | null {
   };
 }
 
-/** Default ledger parse root (see the Python service's `clone_and_load_beanfile`). */
-export const DEFAULT_ENTRY_POINT = "main.bean";
-
 /** The narrow slice of the generated Gitea client this loader depends on. */
 export interface GiteaReposContentClient extends GiteaRawFileClient {
   getTree(
@@ -363,7 +366,7 @@ export interface GiteaClientLike {
 export interface LoadLedgerOptions {
   /** commit/branch/tag to read; defaults to `"HEAD"`. Prefer a resolved SHA. */
   ref?: string;
-  /** ledger entry point (must exist among the `.bean` files); defaults to `"main.bean"`. */
+  /** Internal override; otherwise `.beancountio.json`, then `main.bean`. */
   entryPoint?: string;
 }
 
@@ -386,6 +389,12 @@ export interface LoadedLedger {
    * engine's own (always-failing) filesystem check.
    */
   repoPaths: string[];
+}
+
+export interface FetchedLedgerFileMap {
+  files: FileMap;
+  repoPaths: string[];
+  configuredEntryPoint?: string;
 }
 
 /** List every tree entry across pages (recursive), bounded for safety. */
@@ -428,7 +437,7 @@ export async function fetchBeanFileMap(
   owner: string,
   repo: string,
   ref: string = "HEAD",
-): Promise<{ files: FileMap; repoPaths: string[] }> {
+): Promise<FetchedLedgerFileMap> {
   const { entries: treeEntries, resolvedRef } = await listAllTreeEntries(
     client,
     owner,
@@ -482,6 +491,39 @@ export async function fetchBeanFileMap(
   // for non-conforming mocks/servers that omit `GitTreeResponse.sha`.
   const contentsQuery =
     resolvedRef === "HEAD" ? undefined : { ref: resolvedRef };
+  const fetchText = async (path: string, maxBytes: number): Promise<string> => {
+    const urlPath = toSafeRepoUrlPath(path);
+    const contents = await client.repos.repoGetContents(
+      owner,
+      repo,
+      urlPath,
+      contentsQuery,
+    );
+    return readGiteaFileText(
+      client.repos,
+      owner,
+      repo,
+      urlPath,
+      contents.data,
+      contentsQuery,
+      { maxBytes, requireUtf8: true },
+    );
+  };
+  const configEntry = repoBlobEntries.find(
+    (entry) => entry.path === LEDGER_CONFIG_PATH,
+  );
+  if ((configEntry?.size ?? 0) > MAX_LEDGER_CONFIG_BYTES) {
+    throw new ResourceLimitReachedError(
+      "Ledger configuration bytes",
+      MAX_LEDGER_CONFIG_BYTES,
+      configEntry?.size ?? 0,
+    );
+  }
+  const configuredEntryPoint = configEntry
+    ? parseBeancountIoConfig(
+        await fetchText(LEDGER_CONFIG_PATH, MAX_LEDGER_CONFIG_BYTES),
+      ).entrypoint
+    : undefined;
   const files = Object.create(null) as FileMap;
   let loadedBytes = 0;
   let loadedFileCount = 0;
@@ -491,22 +533,7 @@ export async function fetchBeanFileMap(
     // would truncate/rewrite the request and fail the whole FileMap load —
     // encode each segment like every other Gitea content read (see
     // safe-repo-path.ts). The FileMap keeps the RAW path as its key.
-    const urlPath = toSafeRepoUrlPath(path);
-    const contents = await client.repos.repoGetContents(
-      owner,
-      repo,
-      urlPath,
-      contentsQuery,
-    );
-    const text = await readGiteaFileText(
-      client.repos,
-      owner,
-      repo,
-      urlPath,
-      contents.data,
-      contentsQuery,
-      { maxBytes: MAX_LEDGER_SOURCE_FILE_BYTES, requireUtf8: true },
-    );
+    const text = await fetchText(path, MAX_LEDGER_SOURCE_FILE_BYTES);
     const nextBytes = loadedBytes + Buffer.byteLength(text, "utf-8");
     if (nextBytes > MAX_LEDGER_FILE_MAP_BYTES) {
       throw new ResourceLimitReachedError(
@@ -601,7 +628,7 @@ export async function fetchBeanFileMap(
   for (const path of Object.keys(files).sort())
     orderedFiles[path] = files[path];
 
-  return { files: orderedFiles, repoPaths };
+  return { files: orderedFiles, repoPaths, configuredEntryPoint };
 }
 
 /**
@@ -668,6 +695,7 @@ export function collectSourceFiles(
 export function ledgerFileMapPayloadBytes(
   files: FileMap,
   repoPaths: readonly string[],
+  configuredEntryPoint?: string,
 ): number {
   let total = 0;
   for (const [path, content] of Object.entries(files)) {
@@ -675,6 +703,9 @@ export function ledgerFileMapPayloadBytes(
     total += Buffer.byteLength(content, "utf-8");
   }
   for (const path of repoPaths) total += Buffer.byteLength(path, "utf-8");
+  if (configuredEntryPoint) {
+    total += Buffer.byteLength(configuredEntryPoint, "utf-8");
+  }
   return total;
 }
 
@@ -691,9 +722,16 @@ export async function loadLedgerFileMap(
   options: LoadLedgerOptions = {},
 ): Promise<LoadedLedger> {
   const ref = options.ref ?? "HEAD";
-  const entryPoint = options.entryPoint ?? DEFAULT_ENTRY_POINT;
-
-  const { files, repoPaths } = await fetchBeanFileMap(client, owner, repo, ref);
+  const { files, repoPaths, configuredEntryPoint } = await fetchBeanFileMap(
+    client,
+    owner,
+    repo,
+    ref,
+  );
+  const entryPoint = resolveLedgerEntryPoint(
+    configuredEntryPoint,
+    options.entryPoint,
+  );
   requireEntryPoint(files, owner, repo, entryPoint);
   const sourceFiles = collectSourceFiles(files, entryPoint);
 

@@ -186,14 +186,14 @@ export class LedgerEntryService implements ILedgerEntryService {
     const { directives } = await parseLedgerFiles(files, entryPoint, {
       repoPaths,
     });
-    const bcioData = parseBcioOptions(directives);
+    const bcioData = parseBcioOptions(directives, entryPoint);
 
     // Group each input's rendered text block by its resolved target file.
     const blocksByFile = new Map<string, string>();
     for (const { input, date } of datedInputs) {
       const filename =
         resolveEntryFile(ENTRY_FILE_TYPE[input.type], date, bcioData) ||
-        "main.bean";
+        entryPoint;
       blocksByFile.set(
         filename,
         (blocksByFile.get(filename) ?? "") + entryInputToText(input),

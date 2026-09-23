@@ -14,6 +14,7 @@ import {
   MAX_LEDGER_SOURCE_FILE_BYTES,
   type GiteaClientLike,
 } from "../file-map-loader";
+import { LEDGER_CONFIG_PATH } from "../ledger-config";
 
 describe("globToRegExp safety bounds", () => {
   it("rejects oversized or wildcard-heavy include patterns", () => {
@@ -578,6 +579,93 @@ describe("loadLedgerFileMap", () => {
     });
     expect(result.entryPoint).toBe("ledger.bean");
     expect(Object.keys(result.files)).toEqual(["ledger.bean"]);
+  });
+
+  it("loads the entry point from .beancountio.json", async () => {
+    const { client, repoGetContents } = mockClient(
+      [
+        { path: LEDGER_CONFIG_PATH, type: "blob" },
+        { path: "books/ledger.beancount", type: "blob" },
+        { path: "scratch.bean", type: "blob" },
+      ],
+      {
+        [LEDGER_CONFIG_PATH]: JSON.stringify({
+          entrypoint: "books/ledger.beancount",
+        }),
+        "books/ledger.beancount": "2024-01-01 open Assets:Cash USD\n",
+        "scratch.bean": "2024-01-01 open Assets:Hidden USD\n",
+      },
+    );
+
+    const result = await loadLedgerFileMap(client, "alice", "book");
+
+    expect(result.entryPoint).toBe("books/ledger.beancount");
+    expect(result.sourceFiles).toEqual(["books/ledger.beancount"]);
+    expect(Object.keys(result.files).sort()).toEqual([
+      "books/ledger.beancount",
+      "scratch.bean",
+    ]);
+    expect(repoGetContents).toHaveBeenCalledWith(
+      "alice",
+      "book",
+      LEDGER_CONFIG_PATH,
+      undefined,
+    );
+  });
+
+  it("lets an explicit internal entry point override repository config", async () => {
+    const { client } = mockClient(
+      [
+        { path: LEDGER_CONFIG_PATH, type: "blob" },
+        { path: "configured.bean", type: "blob" },
+        { path: "explicit.bean", type: "blob" },
+      ],
+      {
+        [LEDGER_CONFIG_PATH]: JSON.stringify({
+          entrypoint: "configured.bean",
+        }),
+        "configured.bean": "",
+        "explicit.bean": "",
+      },
+    );
+
+    const result = await loadLedgerFileMap(client, "alice", "book", {
+      entryPoint: "explicit.bean",
+    });
+
+    expect(result.entryPoint).toBe("explicit.bean");
+  });
+
+  it("falls back to main.bean when config omits entrypoint", async () => {
+    const { client } = mockClient(
+      [
+        { path: LEDGER_CONFIG_PATH, type: "blob" },
+        { path: "main.bean", type: "blob" },
+      ],
+      { [LEDGER_CONFIG_PATH]: "{}", "main.bean": "" },
+    );
+
+    const result = await loadLedgerFileMap(client, "alice", "book");
+
+    expect(result.entryPoint).toBe("main.bean");
+  });
+
+  it.each([
+    ["invalid JSON", "{"],
+    ["an unsafe entrypoint", JSON.stringify({ entrypoint: "../book.bean" })],
+    ["a non-ledger entrypoint", JSON.stringify({ entrypoint: "README.md" })],
+  ])("rejects %s in .beancountio.json", async (_label, config) => {
+    const { client } = mockClient(
+      [
+        { path: LEDGER_CONFIG_PATH, type: "blob" },
+        { path: "main.bean", type: "blob" },
+      ],
+      { [LEDGER_CONFIG_PATH]: config, "main.bean": "" },
+    );
+
+    await expect(loadLedgerFileMap(client, "alice", "book")).rejects.toThrow(
+      /beancountio|Invalid file path/u,
+    );
   });
 
   it("throws NotFoundError when the entry point is missing", async () => {

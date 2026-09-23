@@ -64,6 +64,29 @@ const LEDGER = {
 };
 
 describe("loadCachedFileMapForRepo with managed price includes", () => {
+  it("caches and reuses the repository-configured entrypoint", async () => {
+    const helper = memoryCache();
+    const { client, counts } = giteaClient({
+      ".beancountio.json": JSON.stringify({ entrypoint: "books/root.bean" }),
+      "books/root.bean": "2024-01-01 open Assets:Cash USD\n",
+    });
+
+    const first = await loadCachedFileMapForRepo(client, helper, "o", "r", {
+      committedOnly: true,
+    });
+    const second = await loadCachedFileMapForRepo(client, helper, "o", "r", {
+      committedOnly: true,
+    });
+
+    expect(first.entryPoint).toBe("books/root.bean");
+    expect(second.entryPoint).toBe("books/root.bean");
+    expect(counts).toEqual({ commits: 2, tree: 1, contents: 2 });
+    const cached = await helper.get<{
+      configuredEntryPoint?: string;
+    }>(CACHE_KEYS.ledger.fileMapBySha("o", "r", SHA));
+    expect(cached?.configuredEntryPoint).toBe("books/root.bean");
+  });
+
   it("overlays the feed after the SHA cache and never stores it in that cache", async () => {
     const helper = memoryCache();
     const { client, counts } = giteaClient(LEDGER);
