@@ -69,9 +69,14 @@ class FavaPriceMap:
 
     Args:
         price_entries: A sorted list of price entries.
+        operating_currencies: The ledger's preferred presentation currencies.
     """
 
-    def __init__(self, price_entries: Iterable[Price]) -> None:
+    def __init__(
+        self,
+        price_entries: Iterable[Price],
+        operating_currencies: Sequence[str] = (),
+    ) -> None:
         raw_map: dict[BaseQuote, list[PricePoint]] = defaultdict(list)
         counts: Counter[BaseQuote] = Counter()
 
@@ -84,7 +89,10 @@ class FavaPriceMap:
                 raw_map[price.amount.currency, price.currency].append(
                     (price.date, ONE / rate),
                 )
-        self._forward_pairs = [(base, quote) for (base, quote), count in counts.items() if counts.get((quote, base), 0) < count]
+        self.operating_currencies = tuple(dict.fromkeys(operating_currencies))
+        self._forward_pairs = [
+            (base, quote) for (base, quote), count in counts.items() if counts.get((quote, base), 0) < count
+        ]
         self._map = {k: list(_keep_last_per_day(rates)) for k, rates in raw_map.items()}
 
     def commodity_pairs(

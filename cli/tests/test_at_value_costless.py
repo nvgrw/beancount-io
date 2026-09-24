@@ -15,6 +15,8 @@ LEDGER = """option "operating_currency" "USD"
 2024-01-01 * "seed"
   Assets:Bank:Checking  100 USD
   Equity:Opening-Balances
+2024-02-28 price USD 0.75 GBP
+2024-03-01 price HOOL 8 GBP
 2024-03-01 price HOOL 10.5 USD
 2024-03-03 * "buy"
   Assets:Investments:HOOL  2 HOOL @ 10.5 USD
@@ -50,6 +52,7 @@ def test_at_value_prices_costless_lots(tmp_path: Path) -> None:
     assert at_value.returncode == 0, at_value.stderr
     assert "Investments" in at_value.stdout
     assert "21.0 USD" in at_value.stdout
+    assert "GBP" not in at_value.stdout
     # Priced costless lots should not leave bare HOOL on the asset line.
     investments = at_value.stdout.split("Investments", 1)[1].split("Liabilities", 1)[0]
     assert "HOOL" not in investments or "21.0 USD" in investments

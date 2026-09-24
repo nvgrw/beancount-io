@@ -65,9 +65,18 @@ def get_market_value(
             )
         return _Amount(units_.number * cost_.number, value_currency)
 
+    if units_.currency in prices.operating_currencies:
+        return units_
+
+    # Prefer the ledger's presentation currencies over an unrelated quote
+    # that happened to appear first in the price map.
+    for quote in prices.operating_currencies:
+        price_number = prices.get_price((units_.currency, quote), date)
+        if price_number is not None:
+            return _Amount(units_.number * price_number, quote)
+
     # Costless lots (e.g. `2 HOOL @ 10.5 USD` with a `price HOOL`) still have a
-    # market value when a price directive exists; look it up the same way a
-    # currency conversion would, instead of leaving the commodity units bare.
+    # market value when a price directive exists.
     for base, quote in prices._forward_pairs:
         if base != units_.currency:
             continue

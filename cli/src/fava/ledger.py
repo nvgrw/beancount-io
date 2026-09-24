@@ -74,7 +74,10 @@ class FavaLedger:
 
     @cached_property
     def prices(self) -> FavaPriceMap:
-        return FavaPriceMap(self.all_entries_by_type.Price)
+        return FavaPriceMap(
+            self.all_entries_by_type.Price,
+            self.options["operating_currency"],
+        )
 
     @cached_property
     def budget(self) -> BudgetModule:
