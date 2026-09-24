@@ -15,6 +15,7 @@ Customer-facing `beancount-*` ledger skills belong in [`skills/.claude/skills/`]
 | `pm-brainstorm` | Propose roadmap milestones and tasks as text for `/pm` to materialize. |
 | `loopx` | Drain a workstream item by item — triage every pending milestone, task, and inbox note, then work and ship it, close it as already done, block it with an unblock condition, or delete it as invalid. |
 | `ship` | Rebase, commit, and push the current `main` branch. |
+| `upstream-python-ledger-backport` | Keep the self-hosted Jujutsu patch stack and Python ledger API behavior current with `main@upstream`. |
 | `mobile-release` | Prepare and publish mobile store releases and localized listings. |
 | `qa-find-bugs-cli` | Exercise real `bea` commands against isolated synthetic ledgers. |
 | `qa-find-bugs-dashboard` | Exercise dashboard journeys with Playwright and reproduce findings. |
